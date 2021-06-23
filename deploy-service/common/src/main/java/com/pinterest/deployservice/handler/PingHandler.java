@@ -94,6 +94,7 @@ public class PingHandler {
     private LoadingCache<String, DeployBean> deployCache;
     private List<PingRequestValidator> validators;
     private Long agentCountCacheTtl;
+    private Long maxParallelThreshold;
 
     public PingHandler(ServiceContext serviceContext) {
         agentDAO = serviceContext.getAgentDAO();
@@ -113,6 +114,7 @@ public class PingHandler {
         dataHandler = new DataHandler(serviceContext);
         validators = serviceContext.getPingRequestValidators();
         agentCountCacheTtl = serviceContext.getAgentCountCacheTtl();
+        maxParallelThreshold = serviceContext.getMaxParallelThreshold();
 
         if (serviceContext.isBuildCacheEnabled()) {
             buildCache = CacheBuilder.from(serviceContext.getBuildCacheSpec().replace(";", ","))
@@ -142,17 +144,52 @@ public class PingHandler {
 
     // Keep host and group membership in sync
     void updateHosts(String hostName, String hostIp, String hostId, Set<String> groups) throws Exception {
-        hostDAO.insertOrUpdate(hostName, hostIp, hostId, HostState.ACTIVE.toString(), groups);
+        Set<String> recordedGroups = new HashSet<String>(hostDAO.getGroupNamesByHost(hostName));
 
-        List<String> recordedGroups = hostDAO.getGroupNamesByHost(hostName);
+        Set<String> groupsToAdd = new HashSet<String>();
+        // Insert if not recorded
+        for (String group : groups) {
+            if (!recordedGroups.contains(group)) {
+                LOG.info("Insert host {} to group {} mapping", hostName, group);
+                groupsToAdd.add(group);
+            }
+        }
+        if (groupsToAdd.size() > 0) {
+            hostDAO.insertOrUpdate(hostName, hostIp, hostId, HostState.ACTIVE.toString(), groups);
+        }
+        
+        // Remove if not reported
         for (String recordedGroup : recordedGroups) {
             if (!groups.contains(recordedGroup)) {
-                LOG.warn("Remove host {} from group {}", hostName, recordedGroup);
+                LOG.warn("Remove host {} to group {} mapping", hostName, recordedGroup);
                 this.hostDAO.removeHostFromGroup(hostId, recordedGroup);
             }
         }
+    }
 
-
+    void updateHostStatus(String hostId, String hostName, String hostIp, String agentVersion, String asg, Set<String> groups) throws Exception {
+        HostAgentBean hostAgentBean = hostAgentDAO.getHostById(hostId);
+        long current_time = System.currentTimeMillis();
+        boolean isExisting = true;
+        if (hostAgentBean == null) {
+            hostAgentBean = new HostAgentBean();
+            hostAgentBean.setHost_id(hostId);
+            hostAgentBean.setCreate_date(current_time);
+            isExisting = false;
+        }
+        hostAgentBean.setHost_name(hostName);
+        hostAgentBean.setIp(hostIp);
+        hostAgentBean.setLast_update(current_time);
+        hostAgentBean.setAgent_Version(agentVersion);
+        hostAgentBean.setAuto_scaling_group(asg);            
+ 
+        if (!isExisting) {
+            hostAgentDAO.insert(hostAgentBean); 
+        } else {
+            hostAgentDAO.update(hostId, hostAgentBean);
+        }
+        // update the host <-> groups mapping
+        this.updateHosts(hostName, hostIp, hostId, groups);
     }
 
     void deleteAgentSafely(String hostId, String envId) {
@@ -227,29 +264,29 @@ public class PingHandler {
         String envId = envBean.getEnv_id();
         AgentCountBean agentCountBean = agentCountDAO.get(envId);
         long totalNonFirstDeployAgents = (isAgentCountValid(envId, agentCountBean) == true) ? agentCountBean.getExisting_count() : agentDAO.countNonFirstDeployingAgent(envId);
-        long parallelThreshold = getFinalMaxParallelCount(envBean, totalNonFirstDeployAgents);
+        long parallelThreshold = PingHandler.calculateParallelThreshold(envBean, totalNonFirstDeployAgents, this.maxParallelThreshold);
 
         try {
             //Note: This count already excludes first deploy agents, includes agents in STOP state
             long totalDeployingAgents = (isAgentCountValid(envId, agentCountBean) == true) ? agentCountBean.getActive_count() : agentDAO.countDeployingAgent(envId);
             if (totalDeployingAgents >= parallelThreshold) {
-                LOG.debug("There are currently {} agent is actively deploying for env {}, host {} will have to wait for its turn.", totalDeployingAgents, envId, host);
+                LOG.debug("Env {}: active agents {}, parallel threshold {}. host {} will wait for deploy", envId, totalDeployingAgents, parallelThreshold, host);
                 return false;
             }
         } catch (Exception e) {
-            LOG.warn("Failed to check if can deploy or not for env = {}, host = {}, exception = {}, return false.", envId, host, e.toString());
+            LOG.warn("Env {}, host {}: Failed to check if can deploy or not, exception = {}", envId, host, e.toString());
             return false;
         }
 
         // Make sure we also follow the schedule if specified
         if (!canDeploywithSchedule(envBean)) {
-            LOG.debug("Env {} schedule does not allow host {} to proceed.", envId, host);
+            LOG.debug("Env {}: schedule does not allow host {} to proceed.", envId, host);
             return false;
         }
 
         // Make sure we also follow the deploy constraint if specified
         if (!canDeployWithConstraint(agentBean.getHost_id(), envBean)) {
-            LOG.debug("Env {} deploy constraint does not allow host {} to proceed.", envId, host);
+            LOG.debug("Env {}: deploy constraint does not allow host {} to proceed.", envId, host);
             return false;
         }
 
@@ -263,19 +300,19 @@ public class PingHandler {
                 LOG.debug("Got lock on behavor of host {} for env {}, verify active agents", host, envId);
                 long totalActiveAgents = (isAgentCountValid(envId, agentCountBean) == true) ? agentCountBean.getActive_count() : agentDAO.countDeployingAgent(envId);
                 if (totalActiveAgents >= parallelThreshold) {
-                    LOG.debug("There are currently {} agents actively deploying for env {}, host {} will have to wait for its turn.", totalActiveAgents, envId, host);
+                    LOG.debug("Env {}: active agents {}, parallel threshold {}. host {} will wait for deploy", envId, totalActiveAgents, parallelThreshold, host);
                     return false;
                 }
                 // Make sure again we also follow the schedule if specified
                 if (!canDeploywithSchedule(envBean)) {
-                    LOG.debug("Env {} schedule does not allow host {} to proceed.", envId, host);
+                    LOG.debug("Env {}: schedule does not allow host {} to proceed.", envId, host);
                     return false;
                 }
 
 
                 // Make sure we also follow the deploy constraint if specified
                 if (!canDeployWithConstraint(agentBean.getHost_id(), envBean)) {
-                    LOG.debug("Env {} deploy constraint does not allow host {} to proceed.", envId, host);
+                    LOG.debug("Env {}: deploy constraint does not allow host {} to proceed.", envId, host);
                     return false;
                 }
 
@@ -302,7 +339,7 @@ public class PingHandler {
                 LOG.debug("There are currently only {} agent actively deploying for env {}, update and proceed on host {}.", totalActiveAgents, envId, host);
                 return true;
             } catch (Exception e) {
-                LOG.warn("Failed to check if can deploy or not for env = {}, host = {}, exception = {}, return false.", envId, host, e.toString());
+                LOG.warn("Env {} host {}: Failed to check if can deploy or not, exception = {}", envId, host, e.toString());
                 return false;
             } finally {
                 utilDAO.releaseLock(deployLockName, connection);
@@ -312,6 +349,10 @@ public class PingHandler {
             LOG.warn("Failed to grab PARALLEL_LOCK for env = {}, host = {}, return false.", envId, host);
             return false;
         }
+    }
+
+    public static long calculateParallelThreshold(EnvironBean envBean, long totalNonFirstDeployAgents, long maxParallelThreshold) throws Exception {
+        return Math.min(maxParallelThreshold, getFinalMaxParallelCount(envBean, totalNonFirstDeployAgents));
     }
 
     boolean canDeployWithConstraint(String hostId, EnvironBean envBean) throws Exception {
@@ -554,17 +595,12 @@ public class PingHandler {
         String hostIp = pingRequest.getHostIp();
         String hostId = pingRequest.getHostId();
         String hostName = pingRequest.getHostName();
+        String asg = pingRequest.getAutoscalingGroup();
         Set<String> groups = this.shardGroups(pingRequest);
-
-        // always update the host table
-        this.updateHosts(hostName, hostIp, hostId, groups);
-
         //update agent version for host
-        String agent_version = pingRequest.getAgentVersion() != null ? pingRequest.getAgentVersion() : "UNKNOWN";
-        HostAgentBean hostAgentBean = new HostAgentBean();
-        hostAgentBean.setHost_Id(hostId);
-        hostAgentBean.setAgent_Version(agent_version);
-        hostAgentDAO.insert(hostAgentBean);
+        String agentVersion = pingRequest.getAgentVersion() != null ? pingRequest.getAgentVersion() : "UNKNOWN";
+
+        this.updateHostStatus(hostId, hostName, hostIp, agentVersion, asg, groups);
 
         // Convert reports to map, keyed by envId
         Map<String, PingReportBean> reports = convertReports(pingRequest);
@@ -619,7 +655,13 @@ public class PingHandler {
                 }
             }
         }
-
+        List<GoalAnalyst.UninstallCandidate> uninstallCandidates = analyst.getUninstallCandidates();
+        if (!uninstallCandidates.isEmpty()) {
+            for (GoalAnalyst.UninstallCandidate uninstallCandidate : uninstallCandidates) {
+                AgentBean updateBean = uninstallCandidate.updateBean;
+                updateBeans.put(updateBean.getEnv_id(), updateBean);
+            }
+        }
         // Delete deprecated agents if necessary
         List<String> needDeleteAgentIds = analyst.getNeedDeleteAgentEnvIds();
         for (String envId : needDeleteAgentIds) {
@@ -639,7 +681,6 @@ public class PingHandler {
                 .withInstallCandidates(installCandidates);
         }
 
-        List<GoalAnalyst.UninstallCandidate> uninstallCandidates = analyst.getUninstallCandidates();
         if (uninstallCandidates.isEmpty()) {
             LOG.info("Return NOOP for host {} ping, no install or uninstall candidates.", hostName);
             return new PingResult().withResponseBean(NOOP)

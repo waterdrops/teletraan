@@ -126,7 +126,7 @@ public class ConfigHelper {
         context.setTagDAO(new DBTagDAOImpl(dataSource));
         context.setScheduleDAO(new DBScheduleDAOImpl(dataSource));
 
-        // Inject proper implemetation based on config
+        // Inject proper implementation based on config
         context.setAuthorizer(configuration.getAuthorizationFactory().create(context));
         context.setSourceControlManager(configuration.getSourceControlFactory().create());
         context.setChatManager(configuration.getChatFactory().create());
@@ -149,9 +149,9 @@ public class ConfigHelper {
 
         BuildAllowlistFactory buildAllowlistFactory = configuration.getBuildAllowlistFactory();
         if (buildAllowlistFactory != null) {
-            context.setBuildAllowlist(new BuildAllowlistImpl(buildAllowlistFactory.getValidBuildURLs(), buildAllowlistFactory.getTrustedBuildURLs()));
+            context.setBuildAllowlist(new BuildAllowlistImpl(buildAllowlistFactory.getValidBuildURLs(), buildAllowlistFactory.getTrustedBuildURLs(), buildAllowlistFactory.getsoxBuildURLs()));
         } else {
-            context.setBuildAllowlist(new BuildAllowlistImpl(new ArrayList<String>(), new ArrayList<String>()));
+            context.setBuildAllowlist(new BuildAllowlistImpl(new ArrayList<String>(), new ArrayList<String>(), new ArrayList<String>()));
         }
 
         JenkinsFactory jenkinsFactory = configuration.getJenkinsFactory();
@@ -196,6 +196,7 @@ public class ConfigHelper {
         context.setChangeFeedUrl(configuration.getSystemFactory().getChangeFeedUrl());
         // Only applies to Teletraan agent service 
         context.setAgentCountCacheTtl(configuration.getSystemFactory().getAgentCountCacheTtl());
+        context.setMaxParallelThreshold(configuration.getSystemFactory().getMaxParallelThreshold());
         return context;
     }
 

@@ -135,7 +135,7 @@ var capacitySetting = new Vue({
         hostTypeOptions: info.hostTypes.map(
             function (item, idx) {
                 return {
-                    value: item.abstract_name,
+                    value: item.id,
                     text: item.abstract_name + " (" + item.core + " cores, " + item.mem + " GB, " + item.storage + ", " + item.provider + ": " + item.provider_name + ")",
                     isSelected: item.abstract_name === info.defaultHostType
                 }
@@ -183,7 +183,7 @@ var capacitySetting = new Vue({
                     isSelected: item.abstract_name === info.defaultSeurityZone
                 }
             }),
-        selectedHostTypeValue: info.defaultHostType,
+        selectedHostTypeValue: capacityCreationInfo.hostTypes.find(hostType => hostType.abstract_name === capacityCreationInfo.defaultHostType).id,
         selectedSecurityZoneValue: info.defaultSeurityZone,
         selectedPlacements: [],
         showBaseImageHelp: false,
@@ -373,7 +373,8 @@ var capacitySetting = new Vue({
             var scope = this;
             var provider = capacitySetting.currentProvider;
             value = 'cmp_base-ebs-18.04';
-            if (this.selectedHostTypeValue.startsWith('EbsCompute')) {
+            const selectedHostTypeObject = capacityCreationInfo.hostTypes.find(hostType => hostType.id === this.selectedHostTypeValue);
+            if (selectedHostTypeObject.abstract_name.startsWith('EbsCompute')) {
                 capacitySetting.imageNameValue = value;
                 capacitySetting.imagenames = info.baseImageNames.map(
                     function (o) {

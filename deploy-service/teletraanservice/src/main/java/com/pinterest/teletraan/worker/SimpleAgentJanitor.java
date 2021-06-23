@@ -19,13 +19,14 @@ import com.pinterest.deployservice.ServiceContext;
 import com.pinterest.deployservice.bean.AgentBean;
 import com.pinterest.deployservice.bean.AgentState;
 import com.pinterest.deployservice.bean.HostBean;
+import com.pinterest.deployservice.bean.HostAgentBean;
 import com.pinterest.deployservice.bean.HostState;
 import com.pinterest.deployservice.common.Constants;
 import com.pinterest.deployservice.dao.AgentDAO;
 import com.pinterest.deployservice.dao.GroupDAO;
 import com.pinterest.deployservice.dao.HostDAO;
 import com.pinterest.deployservice.dao.HostAgentDAO;
-
+import com.pinterest.deployservice.handler.HostHandler;
 import org.apache.commons.collections.CollectionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,6 +46,7 @@ public class SimpleAgentJanitor implements Runnable {
     protected HostDAO hostDAO;
     protected HostAgentDAO hostAgentDAO;
     private GroupDAO groupDAO;
+    private HostHandler hostHandler;
     protected long maxStaleHostThreshold;
     protected long minStaleHostThreshold;
 
@@ -54,18 +56,18 @@ public class SimpleAgentJanitor implements Runnable {
         hostDAO = serviceContext.getHostDAO();
         hostAgentDAO = serviceContext.getHostAgentDAO();
         groupDAO = serviceContext.getGroupDAO();
+        hostHandler = new HostHandler(serviceContext);
         this.maxStaleHostThreshold = maxStaleHostThreshold * 1000;
         this.minStaleHostThreshold = minStaleHostThreshold * 1000;
     }
 
     // remove the stale host from db
     void removeStaleHost(String id) throws Exception {
+        LOG.info(String.format("Delete records of stale host {}", id));
         try {
-            hostDAO.deleteAllById(id);
-            hostAgentDAO.delete(id);
-            LOG.info("AgentJanitor delete all records for host {}.", id);
+            hostHandler.removeHost(id);
         } catch (Exception e) {
-            LOG.error("AgentJanitor Failed to delete all records for host {}", id, e);
+            LOG.error("Failed to delete all records for host {}. exception {}", id, e);
         }
     }
 
@@ -75,9 +77,9 @@ public class SimpleAgentJanitor implements Runnable {
             AgentBean updateBean = new AgentBean();
             updateBean.setState(AgentState.UNREACHABLE);
             agentDAO.updateAgentById(id, updateBean);
-            LOG.info("AgentJanitor marked agent {} as UNREACHABLE.", id);
+            LOG.info("Marked agent {} as UNREACHABLE.", id);
         } catch (Exception e) {
-            LOG.error("SimpleAgentJanitor Failed to mark host {} as UNREACHABLE", id, e);
+            LOG.error("Failed to mark host {} as UNREACHABLE. exception {}", id, e);
         }
     }
 
@@ -91,18 +93,19 @@ public class SimpleAgentJanitor implements Runnable {
         }
     }
 
-    void processIndividualHosts() throws Exception {
+    void processAllHosts() throws Exception {
+        LOG.info("Process explicite capacity hosts");
         // If a host fails to ping for longer than max stale threshold,
         // then just remove it
         long current_time = System.currentTimeMillis();
         long maxThreshold = current_time - maxStaleHostThreshold;
-        List<HostBean> maxStaleHosts = hostDAO.getStaleEnvHosts(maxThreshold);
+        List<HostAgentBean> maxStaleHosts = hostAgentDAO.getStaleEnvHosts(maxThreshold);
         Set<String> maxStaleHostIds = new HashSet<>();
-        for (HostBean host : maxStaleHosts) {
+        for (HostAgentBean host : maxStaleHosts) {
             maxStaleHostIds.add(host.getHost_id());
         }
         if (!maxStaleHostIds.isEmpty()) {
-            LOG.info("AgentJanitor found the following hosts (Explicite capacity) exceeded maxStaleThreshold: ",
+            LOG.info("Found the following hosts (Explicite capacity) exceeded maxStaleThreshold: ",
                 maxStaleHostIds);
             processStaleHosts(maxStaleHostIds, true);
         }
@@ -111,79 +114,23 @@ public class SimpleAgentJanitor implements Runnable {
         // then mark them as UNREACHABLE
         current_time = System.currentTimeMillis();
         long minThreshold = current_time - minStaleHostThreshold;
-        List<HostBean> minStaleHosts = hostDAO.getStaleEnvHosts(minThreshold);
+        List<HostAgentBean> minStaleHosts = hostAgentDAO.getStaleEnvHosts(minThreshold);
         Set<String> minStaleHostIds = new HashSet<>();
-        for (HostBean host : minStaleHosts) {
+        for (HostAgentBean host : minStaleHosts) {
             minStaleHostIds.add(host.getHost_id());
         }
         if (!minStaleHostIds.isEmpty()) {
-            LOG.info("AgentJanitor found following hosts (Explicite capacity) excceeded minStaleThreshold: ",
+            LOG.info("Found following hosts (Explicite capacity) excceeded minStaleThreshold: ",
                 minStaleHostIds);
             processStaleHosts(minStaleHostIds, false);
         }
-    }
-
-    void processEachGroup(String groupName) throws Exception {
-        Set<String> maxStaleHostIds = new HashSet<>();
-        Set<String> minStaleHostIds = new HashSet<>();
-        int size = 1000;
-        for (int i = 1; ; i++) {
-            List<HostBean> hostBeans = hostDAO.getHostsByGroup(groupName, i, size);
-            if (CollectionUtils.isEmpty(hostBeans)) {
-                break;
-            }
-            long current_time = System.currentTimeMillis();
-            for (HostBean host : hostBeans) {
-                long last_update = host.getLast_update();
-                String id = host.getHost_id();
-                if (current_time - last_update >= maxStaleHostThreshold) {
-                    maxStaleHostIds.add(id);
-                } else if (current_time - last_update >= minStaleHostThreshold) {
-                    minStaleHostIds.add(id);
-                }
-            }
-            if (hostBeans.size() < size) {
-                break;
-            }
-        }
-
-        if (!maxStaleHostIds.isEmpty()) {
-            LOG.info("AgentJanitor found the following hosts excceeded maxStaleThreshold: ",
-                maxStaleHostIds);
-            processStaleHosts(maxStaleHostIds, true);
-        }
-        if (!minStaleHostIds.isEmpty()) {
-            LOG.info("AgentJanitor found the following hosts excceeded minStaleThreshold: ",
-                minStaleHostIds);
-            processStaleHosts(minStaleHostIds, false);
-        }
-    }
-
-    void processBatch() throws Exception {
-        // First, check those groups associates with certain envs
-        List<String> groups = groupDAO.getAllEnvGroups();
-        // Manually inject the NULL group
-        groups.add(Constants.NULL_HOST_GROUP);
-        Collections.shuffle(groups);
-        for (String group : groups) {
-            try {
-                LOG.info("AgentJanitor process group: {}", group);
-                processEachGroup(group);
-            } catch (Exception e) {
-                LOG.error("SimpleAgentJanitor failed to process group: {}", group, e);
-            }
-        }
-
-        // For those hosts do not belong to any host, but still associate with certain envs
-        LOG.info("AgentJanitor process explicite capacity hosts");
-        processIndividualHosts();
     }
 
     @Override
     public void run() {
         try {
-            LOG.info("AgentJanitor Start simple agent janitor process...");
-            processBatch();
+            LOG.info("Start simple agent janitor process...");
+            processAllHosts();
         } catch (Throwable t) {
             // Catch all throwable so that subsequent job not suppressed
             LOG.error("SimpleAgentJanitor Failed.", t);

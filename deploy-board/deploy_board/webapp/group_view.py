@@ -164,6 +164,12 @@ def get_pas_config(request, group_name):
         raise
     return HttpResponse(json.dumps(html), content_type="application/json")
 
+def get_spiffe_id(user_data):
+    for entry in user_data:
+        tokens = entry.split(":", 1)
+        if tokens[0].strip() == "spiffe_id":
+            return tokens[1].strip()
+    return None
 
 def update_launch_config(request, group_name):
     try:
@@ -181,33 +187,17 @@ def update_launch_config(request, group_name):
         else:
             launchRequest["assignPublicIp"] = False
 
-        userPassInSpiffeID = None
-        passInUserDataList = params["userData"].splitlines()
-        for item in passInUserDataList:
-                if ":" in item:
-                    pair = item.split(":")
-                    if pair[0] == "spiffe_id":
-                        userPassInSpiffeID = pair[1]
-                        break
+        desired_spiffe_id = get_spiffe_id(params["userData"].splitlines())
 
+        actual_spiffe_id = None
         group_info = autoscaling_groups_helper.get_group_info(request, group_name)
         launch_config = group_info.get("launchInfo")
         if 'userData' in launch_config:
-            userDataList = launch_config['userData'].splitlines()
-            for item in userDataList:
-                if ":" in item:
-                    pair = item.split(":")
-                    if pair[0] == "spiffe_id" and userPassInSpiffeID is None:
-                        log.error("Teletraan does not support user to remove spiffe_id in userData field")
-                        raise TeletraanException("Teletraan does not support user to remove spiffe_id")
-
-                    if pair[0] == "spiffe_id" and pair[1] != userPassInSpiffeID:
-                        log.error("Teletraan does not support user to update spiffe_id in userData field")
-                        raise TeletraanException("Teletraan does not support user to update spiffe_id")
-
-                    if pair[0] != "spiffe_id" and userPassInSpiffeID is not None:
-                        log.error("Teletraan does not support user to create spiffe_id in userData field")
-                        raise TeletraanException("Teletraan does not support user to create spiffe_id")
+            actual_spiffe_id = get_spiffe_id(launch_config['userData'].splitlines())
+        
+        if desired_spiffe_id != actual_spiffe_id:
+            log.error("Teletraan does not allow spiffe_id changes from user")
+            raise TeletraanException("Teletraan does not allow spiffe_id changes from user")
 
         autoscaling_groups_helper.update_launch_config(request, group_name, launchRequest)
         return get_launch_config(request, group_name)
@@ -940,6 +930,32 @@ class GroupDetailView(View):
         envs = environs_helper.get_all_envs_by_group(request, group_name)
         disabled_actions = autoscaling_groups_helper.get_disabled_asg_actions(request, group_name)
         pas_config = autoscaling_groups_helper.get_pas_config(request, group_name)
+        base_metric_url = "https://statsboard.pinadmin.com/build?"
+
+        group_size_url = base_metric_url+'''
+            {"renderer":"line","title":"Fleet Size", "yAxisLabel":"Group Size", "ymin":"0","from":"1w",
+             "metrics":[{"agg":"avg", "color":"dodgerblue","db":"tsdb", "dsValue":"10m", "renderer":"line",
+                         "metric":"autoscaling.%s.size"}]}
+        ''' % group_name
+
+        for env in envs:
+            env['launchlatencylink'] = base_metric_url + '''
+                {"renderer":"line", "yAxisLabel":"Launch Latency","ymin":"0","from":"1w",
+                 "metrics":[{"agg":"avg", "color":"dodgerblue","db":"tsdb", "dsValue":"10m", "renderer":"line",
+                             "metric":"autoscaling.%s.%s.launchlatency"}]}
+            ''' % (env.get('envName'), env.get('stageName'))
+
+            env['deploylatencylink'] = base_metric_url + '''
+                {"renderer":"line", "yAxisLabel":"Deploy Latency", "ymin":"0","from":"1w",
+                 "metrics":[{"agg":"avg", "color":"dodgerblue","db":"tsdb", "dsValue":"10m", "renderer":"line",
+                             "metric":"autoscaling.%s.%s.deploylatency"}]}
+            ''' % (env.get('envName'), env.get('stageName'))
+
+            env['deployfailedlink'] = base_metric_url + '''
+                {"renderer":"line", "yAxisLabel":"Launch Failed", "ymin":"0","from":"1w",
+                 "metrics":[{"agg":"mimmax", "color":"dodgerblue","db":"tsdb", "dsValue":"10m", "renderer":"line",
+                             "metric":"autoscaling.%s.%s.first_deploy.failed"}]}
+            ''' % (env.get('envName'), env.get('stageName'))
 
         if "Terminate" in disabled_actions:
             scaling_down_event_enabled = False
@@ -962,6 +978,7 @@ class GroupDetailView(View):
             "launch_config": launch_config,
             "pas_enabled": pas_config['pas_state'] if pas_config else False,
             "disallow_autoscaling": _disallow_autoscaling(curr_image),
+            "group_size_url": group_size_url,
         })
 
 
@@ -1229,7 +1246,7 @@ def add_scheduled_actions(request, group_name):
         scheduled_action_capacity = int(params['capacity'])
         if scheduled_action_capacity < asg_minsize or scheduled_action_capacity > asg_maxsize:
             raise TeletraanException("Invalid capacity: {}. Desired capacity must be within the limits of ASG's minimum capacity ({}) and maximum capacity ({}). Please change the value you input for Capacity.".format(params['capacity'], asg_minsize, asg_maxsize))
- 
+
         autoscaling_groups_helper.add_scheduled_actions(request, group_name, [schedule_action])
     except:
         log.error(traceback.format_exc())
