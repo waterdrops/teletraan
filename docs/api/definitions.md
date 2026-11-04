@@ -1,984 +1,1013 @@
-## Definitions
-### AgentBean
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|hostId||false|string||
-|hostName||false|string||
-|envId||false|string||
-|deployId||false|string||
-|deployStage||false|enum (UNKNOWN, PRE_DOWNLOAD, DOWNLOADING, POST_DOWNLOAD, STAGING, PRE_RESTART, RESTARTING, POST_RESTART, SERVING_BUILD, STOPPING, STOPPED)||
-|state||false|enum (NORMAL, PAUSED_BY_SYSTEM, PAUSED_BY_USER, RESET, DELETE, UNREACHABLE, STOP)||
-|status||false|enum (SUCCEEDED, UNKNOWN, AGENT_FAILED, RETRYABLE_AGENT_FAILED, SCRIPT_FAILED, ABORTED_BY_SERVICE, SCRIPT_TIMEOUT, TOO_MANY_RETRY, RUNTIME_MISMATCH)||
-|startDate||false|integer (int64)||
-|lastUpdateDate||false|integer (int64)||
-|lastOperator||false|string||
-|lastErrno||false|integer (int32)||
-|failCount||false|integer (int32)||
-|firstDeploy||false|boolean|false|
-|firstDeployDate||false|integer (int64)||
-|stageStartDate||false|integer (int64)||
+<a name="definitions"></a>
 
+## Definitions
+
+<a name="agentbean"></a>
+
+### AgentBean
+
+| Name                                     | Schema                                                                                                                                               |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **containerHealthStatus** <br>_optional_ | string                                                                                                                                               |
+| **deployId** <br>_optional_              | string                                                                                                                                               |
+| **deployStage** <br>_optional_           | enum (UNKNOWN, PRE_DOWNLOAD, DOWNLOADING, POST_DOWNLOAD, STAGING, PRE_RESTART, RESTARTING, POST_RESTART, SERVING_BUILD, STOPPING, STOPPED)           |
+| **envId** <br>_optional_                 | string                                                                                                                                               |
+| **failCount** <br>_optional_             | integer (int32)                                                                                                                                      |
+| **firstDeploy** <br>_optional_           | boolean                                                                                                                                              |
+| **firstDeployDate** <br>_optional_       | integer (int64)                                                                                                                                      |
+| **hostId** <br>_optional_                | string                                                                                                                                               |
+| **hostName** <br>_optional_              | string                                                                                                                                               |
+| **lastErrno** <br>_optional_             | integer (int32)                                                                                                                                      |
+| **lastOperator** <br>_optional_          | string                                                                                                                                               |
+| **lastUpdateDate** <br>_optional_        | integer (int64)                                                                                                                                      |
+| **stageStartDate** <br>_optional_        | integer (int64)                                                                                                                                      |
+| **startDate** <br>_optional_             | integer (int64)                                                                                                                                      |
+| **state** <br>_optional_                 | enum (NORMAL, PAUSED_BY_SYSTEM, PAUSED_BY_USER, RESET, RESET_BY_SYSTEM, DELETE, UNREACHABLE, STOP)                                                   |
+| **status** <br>_optional_                | enum (SUCCEEDED, UNKNOWN, AGENT_FAILED, RETRYABLE_AGENT_FAILED, SCRIPT_FAILED, ABORTED_BY_SERVICE, SCRIPT_TIMEOUT, TOO_MANY_RETRY, RUNTIME_MISMATCH) |
+
+<a name="agenterrorbean"></a>
 
 ### AgentErrorBean
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|hostId||false|string||
-|hostName||false|string||
-|envId||false|string||
-|errorMessage||false|string||
 
+| Name                            | Schema |
+| ------------------------------- | ------ |
+| **envId** <br>_optional_        | string |
+| **errorMessage** <br>_optional_ | string |
+| **hostId** <br>_optional_       | string |
+| **hostName** <br>_optional_     | string |
+
+<a name="alarmbean"></a>
+
+### AlarmBean
+
+| Name                          | Schema |
+| ----------------------------- | ------ |
+| **alarmUrl** <br>_optional_   | string |
+| **metricsUrl** <br>_optional_ | string |
+| **name** <br>_optional_       | string |
+
+<a name="buildbean"></a>
 
 ### BuildBean
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|id||false|string||
-|name||false|string||
-|artifactUrl||false|string||
-|type||false|string||
-|repo||false|string||
-|branch||false|string||
-|commit||false|string||
-|commitShort||false|string||
-|commitInfo||false|string||
-|commitDate||false|integer (int64)||
-|publishInfo||false|string||
-|publisher||false|string||
-|publishDate||false|integer (int64)||
 
+| Name                           | Schema          |
+| ------------------------------ | --------------- |
+| **artifactUrl** <br>_optional_ | string          |
+| **branch** <br>_optional_      | string          |
+| **commit** <br>_optional_      | string          |
+| **commitDate** <br>_optional_  | integer (int64) |
+| **commitInfo** <br>_optional_  | string          |
+| **commitShort** <br>_optional_ | string          |
+| **id** <br>_optional_          | string          |
+| **name** <br>_optional_        | string          |
+| **publishDate** <br>_optional_ | integer (int64) |
+| **publishInfo** <br>_optional_ | string          |
+| **publisher** <br>_optional_   | string          |
+| **repo** <br>_optional_        | string          |
+| **type** <br>_optional_        | string          |
+
+<a name="buildtagbean"></a>
 
 ### BuildTagBean
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|tag||false|TagBean||
-|build||false|BuildBean||
 
+| Name                     | Schema                  |
+| ------------------------ | ----------------------- |
+| **build** <br>_optional_ | [BuildBean](#buildbean) |
+| **tag** <br>_optional_   | [TagBean](#tagbean)     |
+
+<a name="chatmessagebean"></a>
 
 ### ChatMessageBean
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|from||false|string||
-|to||false|string||
-|message||false|string||
 
+| Name                       | Schema |
+| -------------------------- | ------ |
+| **from** <br>_optional_    | string |
+| **message** <br>_optional_ | string |
+| **to** <br>_optional_      | string |
+
+<a name="commitbean"></a>
 
 ### CommitBean
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|sha||false|string||
-|author||false|string||
-|date||false|integer (int64)||
-|title||false|string||
-|message||false|string||
-|info||false|string||
 
+| Name                       | Schema          |
+| -------------------------- | --------------- |
+| **author** <br>_optional_  | string          |
+| **date** <br>_optional_    | integer (int64) |
+| **info** <br>_optional_    | string          |
+| **message** <br>_optional_ | string          |
+| **sha** <br>_optional_     | string          |
+| **title** <br>_optional_   | string          |
+
+<a name="confighistorybean"></a>
 
 ### ConfigHistoryBean
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|id||false|string||
-|changeId||false|string||
-|createTime||false|integer (int64)||
-|operator||false|string||
-|type||false|string||
-|configChange||false|string||
 
+| Name                            | Schema          |
+| ------------------------------- | --------------- |
+| **changeId** <br>_optional_     | string          |
+| **configChange** <br>_optional_ | string          |
+| **createTime** <br>_optional_   | integer (int64) |
+| **id** <br>_optional_           | string          |
+| **operator** <br>_optional_     | string          |
+| **type** <br>_optional_         | string          |
+
+<a name="deploybean"></a>
 
 ### DeployBean
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|alias||false|string||
-|state||false|enum (RUNNING, FAILING, SUCCEEDING, SUCCEEDED, ABORTED)||
-|operator||false|string||
-|description||false|string||
-|total||false|integer (int32)||
-|id||false|string||
-|envId||false|string||
-|buildId||false|string||
-|type||false|enum (REGULAR, HOTFIX, ROLLBACK, RESTART, STOP)||
-|startDate||false|integer (int64)||
-|lastUpdateDate||false|integer (int64)||
-|successTotal||false|integer (int32)||
-|failTotal||false|integer (int32)||
-|successDate||false|integer (int64)||
-|acceptanceStatus||false|enum (PENDING_DEPLOY, OUTSTANDING, PENDING_ACCEPT, ACCEPTED, REJECTED, TERMINATED)||
-|fromDeployId||false|string||
 
+| Name                                | Schema                                                                             |
+| ----------------------------------- | ---------------------------------------------------------------------------------- |
+| **acceptanceStatus** <br>_optional_ | enum (PENDING_DEPLOY, OUTSTANDING, PENDING_ACCEPT, ACCEPTED, REJECTED, TERMINATED) |
+| **alias** <br>_optional_            | string                                                                             |
+| **buildId** <br>_optional_          | string                                                                             |
+| **description** <br>_optional_      | string                                                                             |
+| **envId** <br>_optional_            | string                                                                             |
+| **failTotal** <br>_optional_        | integer (int32)                                                                    |
+| **fromDeployId** <br>_optional_     | string                                                                             |
+| **id** <br>_optional_               | string                                                                             |
+| **lastUpdateDate** <br>_optional_   | integer (int64)                                                                    |
+| **operator** <br>_optional_         | string                                                                             |
+| **startDate** <br>_optional_        | integer (int64)                                                                    |
+| **state** <br>_optional_            | enum (RUNNING, FAILING, SUCCEEDING, SUCCEEDED, ABORTED)                            |
+| **successDate** <br>_optional_      | integer (int64)                                                                    |
+| **successTotal** <br>_optional_     | integer (int32)                                                                    |
+| **total** <br>_optional_            | integer (int32)                                                                    |
+| **type** <br>_optional_             | enum (REGULAR, HOTFIX, ROLLBACK, RESTART, STOP)                                    |
+
+<a name="deploycandidatesresponse"></a>
 
 ### DeployCandidatesResponse
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|candidates||false|PingResponseBean array||
 
+| Name                          | Schema                                          |
+| ----------------------------- | ----------------------------------------------- |
+| **candidates** <br>_optional_ | < [PingResponseBean](#pingresponsebean) > array |
+
+<a name="deployconstraintbean"></a>
 
 ### DeployConstraintBean
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|id||false|string||
-|constraintKey||false|string||
-|maxParallel||false|integer (int64)||
-|state||false|enum (INIT, PROCESSING, ERROR, FINISHED)||
-|startDate||false|integer (int64)||
-|lastUpdate||false|integer (int64)||
 
+| Name                              | Schema                                        |
+| --------------------------------- | --------------------------------------------- |
+| **constraintKey** <br>_optional_  | string                                        |
+| **constraintType** <br>_optional_ | enum (GROUP_BY_GROUP, ALL_GROUPS_IN_PARALLEL) |
+| **id** <br>_optional_             | string                                        |
+| **lastUpdate** <br>_optional_     | integer (int64)                               |
+| **maxParallel** <br>_optional_    | integer (int64)                               |
+| **startDate** <br>_optional_      | integer (int64)                               |
+| **state** <br>_optional_          | enum (INIT, PROCESSING, ERROR, FINISHED)      |
+
+<a name="deploygoalbean"></a>
 
 ### DeployGoalBean
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|deployId||false|string||
-|deployType||false|enum (REGULAR, HOTFIX, ROLLBACK, RESTART, STOP)||
-|envId||false|string||
-|envName||false|string||
-|stageName||false|string||
-|deployStage||false|enum (UNKNOWN, PRE_DOWNLOAD, DOWNLOADING, POST_DOWNLOAD, STAGING, PRE_RESTART, RESTARTING, POST_RESTART, SERVING_BUILD, STOPPING, STOPPED)||
-|build||false|BuildBean||
-|deployAlias||false|string||
-|agentConfigs||false|object||
-|scriptVariables||false|object||
-|firstDeploy||false|boolean|false|
-|isDocker||false|boolean|false|
 
+| Name                               | Schema                                                                                                                                     |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| **agentConfigs** <br>_optional_    | < string, string > map                                                                                                                     |
+| **build** <br>_optional_           | [BuildBean](#buildbean)                                                                                                                    |
+| **deployAlias** <br>_optional_     | string                                                                                                                                     |
+| **deployId** <br>_optional_        | string                                                                                                                                     |
+| **deployStage** <br>_optional_     | enum (UNKNOWN, PRE_DOWNLOAD, DOWNLOADING, POST_DOWNLOAD, STAGING, PRE_RESTART, RESTARTING, POST_RESTART, SERVING_BUILD, STOPPING, STOPPED) |
+| **deployType** <br>_optional_      | enum (REGULAR, HOTFIX, ROLLBACK, RESTART, STOP)                                                                                            |
+| **envId** <br>_optional_           | string                                                                                                                                     |
+| **envName** <br>_optional_         | string                                                                                                                                     |
+| **firstDeploy** <br>_optional_     | boolean                                                                                                                                    |
+| **isDocker** <br>_optional_        | boolean                                                                                                                                    |
+| **scriptVariables** <br>_optional_ | < string, string > map                                                                                                                     |
+| **stageName** <br>_optional_       | string                                                                                                                                     |
+| **stageType** <br>_optional_       | enum (DEFAULT, PRODUCTION, CONTROL, CANARY, LATEST, DEV, STAGING)                                                                          |
+
+<a name="deployprogressbean"></a>
 
 ### DeployProgressBean
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|agents||false|AgentBean array||
-|missingHosts||false|string array||
-|provisioningHosts||false|HostBean array||
 
+| Name                                 | Schema                            |
+| ------------------------------------ | --------------------------------- |
+| **agents** <br>_optional_            | < [AgentBean](#agentbean) > array |
+| **missingHosts** <br>_optional_      | < string > array                  |
+| **provisioningHosts** <br>_optional_ | < [HostBean](#hostbean) > array   |
+
+<a name="deployqueryresultbean"></a>
 
 ### DeployQueryResultBean
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|deploys||false|DeployBean array||
-|deployTags||false|object||
-|total||false|integer (int64)||
-|truncated||false|boolean|false|
 
+| Name                          | Schema                              |
+| ----------------------------- | ----------------------------------- |
+| **deployTags** <br>_optional_ | < string, [TagBean](#tagbean) > map |
+| **deploys** <br>_optional_    | < [DeployBean](#deploybean) > array |
+| **total** <br>_optional_      | integer (int64)                     |
+| **truncated** <br>_optional_  | boolean                             |
+
+<a name="envwebhookbean"></a>
 
 ### EnvWebHookBean
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|preDeployHooks||false|WebHookBean array||
-|postDeployHooks||false|WebHookBean array||
 
+| Name                               | Schema                                |
+| ---------------------------------- | ------------------------------------- |
+| **postDeployHooks** <br>_optional_ | < [WebHookBean](#webhookbean) > array |
+| **preDeployHooks** <br>_optional_  | < [WebHookBean](#webhookbean) > array |
+
+<a name="environbean"></a>
 
 ### EnvironBean
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|id||false|string||
-|envName||false|string||
-|stageName||false|string||
-|envState||false|enum (NORMAL, PAUSED, DISABLED)||
-|description||false|string||
-|buildName||false|string||
-|branch||false|string||
-|chatroom||false|string||
-|deployId||false|string||
-|deployType||false|enum (REGULAR, HOTFIX, ROLLBACK, RESTART, STOP)||
-|maxParallel||false|integer (int32)||
-|priority||false|enum (NORMAL, HIGH, LOW, HIGHER, LOWER)||
-|systemPriority||false|integer (int32)||
-|stuckThreshold||false|integer (int32)||
-|successThreshold||false|integer (int32)||
-|advancedConfigId||false|string||
-|scriptConfigId||false|string||
-|lastOperator||false|string||
-|lastUpdate||false|integer (int64)||
-|acceptanceType||false|enum (AUTO, MANUAL)||
-|emailRecipients||false|string||
-|notifyAuthors||false|boolean|false|
-|watchRecipients||false|string||
-|metricsConfigId||false|string||
-|alarmConfigId||false|string||
-|webhooksConfigId||false|string||
-|maxDeployNum||false|integer (int32)||
-|maxDeployDay||false|integer (int32)||
-|isDocker||false|boolean|false|
-|maxParallelPct||false|integer (int32)||
-|state||false|enum (NORMAL, DISABLED)||
-|clusterName||false|string||
-|maxParallelRp||false|integer (int32)||
-|overridePolicy||false|enum (OVERRIDE, WARN)||
-|scheduleId||false|string||
-|deployConstraintId||false|string||
-|stageType||true|enum (production, control, canary, latest)|production|
 
+| Name                                      | Schema                                                            |
+| ----------------------------------------- | ----------------------------------------------------------------- |
+| **acceptanceType** <br>_optional_         | enum (AUTO, MANUAL)                                               |
+| **advancedConfigId** <br>_optional_       | string                                                            |
+| **alarmConfigId** <br>_optional_          | string                                                            |
+| **allowPrivateBuild** <br>_optional_      | boolean                                                           |
+| **branch** <br>_optional_                 | string                                                            |
+| **buildName** <br>_optional_              | string                                                            |
+| **chatroom** <br>_optional_               | string                                                            |
+| **clusterName** <br>_optional_            | string                                                            |
+| **deployConstraintId** <br>_optional_     | string                                                            |
+| **deployId** <br>_optional_               | string                                                            |
+| **deployType** <br>_optional_             | enum (REGULAR, HOTFIX, ROLLBACK, RESTART, STOP)                   |
+| **description** <br>_optional_            | string                                                            |
+| **emailRecipients** <br>_optional_        | string                                                            |
+| **ensureTrustedBuild** <br>_optional_     | boolean                                                           |
+| **envName** <br>_optional_                | string                                                            |
+| **envState** <br>_optional_               | enum (NORMAL, PAUSED, DISABLED)                                   |
+| **externalId** <br>_optional_             | string                                                            |
+| **groupMentionRecipients** <br>_optional_ | string                                                            |
+| **id** <br>_optional_                     | string                                                            |
+| **isDocker** <br>_optional_               | boolean                                                           |
+| **isSOX** <br>_optional_                  | boolean                                                           |
+| **lastOperator** <br>_optional_           | string                                                            |
+| **lastUpdate** <br>_optional_             | integer (int64)                                                   |
+| **maxDeployDay** <br>_optional_           | integer (int32)                                                   |
+| **maxDeployNum** <br>_optional_           | integer (int32)                                                   |
+| **maxParallel** <br>_optional_            | integer (int32)                                                   |
+| **maxParallelPct** <br>_optional_         | integer (int32)                                                   |
+| **maxParallelRp** <br>_optional_          | integer (int32)                                                   |
+| **metricsConfigId** <br>_optional_        | string                                                            |
+| **notifyAuthors** <br>_optional_          | boolean                                                           |
+| **overridePolicy** <br>_optional_         | enum (OVERRIDE, WARN)                                             |
+| **priority** <br>_optional_               | enum (NORMAL, HIGH, LOW, HIGHER, LOWER)                           |
+| **scheduleId** <br>_optional_             | string                                                            |
+| **scriptConfigId** <br>_optional_         | string                                                            |
+| **stageName** <br>_optional_              | string                                                            |
+| **stageType** <br>_optional_              | enum (DEFAULT, PRODUCTION, CONTROL, CANARY, LATEST, DEV, STAGING) |
+| **state** <br>_optional_                  | enum (NORMAL, DISABLED)                                           |
+| **stuckThreshold** <br>_optional_         | integer (int32)                                                   |
+| **successThreshold** <br>_optional_       | integer (int32)                                                   |
+| **systemPriority** <br>_optional_         | integer (int32)                                                   |
+| **terminationLimit** <br>_optional_       | integer (int32)                                                   |
+| **watchRecipients** <br>_optional_        | string                                                            |
+| **webhooksConfigId** <br>_optional_       | string                                                            |
+
+<a name="grouprolesbean"></a>
 
 ### GroupRolesBean
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|name||false|string||
-|resource||false|string||
-|type||false|enum (ENV, GROUP, SYSTEM)||
-|role||true|enum (READER, PINGER, PUBLISHER, OPERATOR, ADMIN)||
 
+| Name                        | Schema                                                                                      |
+| --------------------------- | ------------------------------------------------------------------------------------------- |
+| **name** <br>_optional_     | string                                                                                      |
+| **resource** <br>_optional_ | string                                                                                      |
+| **role** <br>_required_     | enum (READ, READER, PINGER, PUBLISHER, EXECUTE, WRITE, DELETE, OPERATOR, ADMIN)             |
+| **type** <br>_optional_     | enum (ENV, GROUP, SYSTEM, ENV_STAGE, PLACEMENT, BASE_IMAGE, SECURITY_ZONE, IAM_ROLE, BUILD) |
+
+<a name="hostbean"></a>
 
 ### HostBean
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|hostName||false|string||
-|groupName||false|string||
-|ip||false|string||
-|hostId||false|string||
-|createDate||false|integer (int64)||
-|lastUpdateDate||false|integer (int64)||
-|state||false|enum (PROVISIONED, ACTIVE, PENDING_TERMINATE, TERMINATING, TERMINATED)||
-|canRetire||false|integer (int32)||
 
+| Name                                | Schema                                                                                               |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **accountId** <br>_optional_        | string                                                                                               |
+| **canRetire** <br>_optional_        | integer (int32)                                                                                      |
+| **createDate** <br>_optional_       | integer (int64)                                                                                      |
+| **groupName** <br>_optional_        | string                                                                                               |
+| **hostId** <br>_optional_           | string                                                                                               |
+| **hostName** <br>_optional_         | string                                                                                               |
+| **ip** <br>_optional_               | string                                                                                               |
+| **lastUpdateDate** <br>_optional_   | integer (int64)                                                                                      |
+| **pendingTerminate** <br>_optional_ | boolean                                                                                              |
+| **state** <br>_optional_            | enum (PROVISIONED, ACTIVE, PENDING_TERMINATE, TERMINATING, TERMINATED, PENDING_TERMINATE_NO_REPLACE) |
+
+<a name="hosttaginfo"></a>
 
 ### HostTagInfo
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|hostName||false|string||
-|hostId||false|string||
-|tagName||false|string||
-|tagValue||false|string||
 
+| Name                        | Schema |
+| --------------------------- | ------ |
+| **hostId** <br>_optional_   | string |
+| **hostName** <br>_optional_ | string |
+| **tagName** <br>_optional_  | string |
+| **tagValue** <br>_optional_ | string |
+
+<a name="hotfixbean"></a>
+
+### HotfixBean
+
+| Name                            | Schema                                                        |
+| ------------------------------- | ------------------------------------------------------------- |
+| **baseCommit** <br>_optional_   | string                                                        |
+| **baseDeployId** <br>_optional_ | string                                                        |
+| **commits** <br>_optional_      | string                                                        |
+| **envName** <br>_optional_      | string                                                        |
+| **errorMessage** <br>_optional_ | string                                                        |
+| **id** <br>_optional_           | string                                                        |
+| **jobName** <br>_optional_      | string                                                        |
+| **jobNum** <br>_optional_       | string                                                        |
+| **lastWorkedOn** <br>_optional_ | integer (int64)                                               |
+| **operator** <br>_optional_     | string                                                        |
+| **progress** <br>_optional_     | integer (int32)                                               |
+| **repo** <br>_optional_         | string                                                        |
+| **startDate** <br>_optional_    | integer (int64)                                               |
+| **state** <br>_optional_        | enum (INITIAL, PUSHING, BUILDING, SUCCEEDED, FAILED, ABORTED) |
+| **timeout** <br>_optional_      | integer (int32)                                               |
+
+<a name="metricsconfigbean"></a>
 
 ### MetricsConfigBean
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|title||false|string||
-|url||false|string||
-|specs||false|MetricsSpecBean array||
 
+| Name                     | Schema                                        |
+| ------------------------ | --------------------------------------------- |
+| **specs** <br>_optional_ | < [MetricsSpecBean](#metricsspecbean) > array |
+| **title** <br>_optional_ | string                                        |
+| **url** <br>_optional_   | string                                        |
+
+<a name="metricsspecbean"></a>
 
 ### MetricsSpecBean
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|min||false|number (double)||
-|max||false|number (double)||
-|color||false|string||
 
+| Name                     | Schema          |
+| ------------------------ | --------------- |
+| **color** <br>_optional_ | string          |
+| **max** <br>_optional_   | number (double) |
+| **min** <br>_optional_   | number (double) |
+
+<a name="pingreportbean"></a>
 
 ### PingReportBean
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|deployId||false|string||
-|envId||false|string||
-|deployStage||false|enum (UNKNOWN, PRE_DOWNLOAD, DOWNLOADING, POST_DOWNLOAD, STAGING, PRE_RESTART, RESTARTING, POST_RESTART, SERVING_BUILD, STOPPING, STOPPED)||
-|agentStatus||false|enum (SUCCEEDED, UNKNOWN, AGENT_FAILED, RETRYABLE_AGENT_FAILED, SCRIPT_FAILED, ABORTED_BY_SERVICE, SCRIPT_TIMEOUT, TOO_MANY_RETRY, RUNTIME_MISMATCH)||
-|errorCode||false|integer (int32)||
-|errorMessage||false|string||
-|failCount||false|integer (int32)||
-|extraInfo||false|object||
-|deployAlias||false|string||
 
+| Name                                     | Schema                                                                                                                                               |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **agentState** <br>_optional_            | string                                                                                                                                               |
+| **agentStatus** <br>_optional_           | enum (SUCCEEDED, UNKNOWN, AGENT_FAILED, RETRYABLE_AGENT_FAILED, SCRIPT_FAILED, ABORTED_BY_SERVICE, SCRIPT_TIMEOUT, TOO_MANY_RETRY, RUNTIME_MISMATCH) |
+| **containerHealthStatus** <br>_optional_ | string                                                                                                                                               |
+| **deployAlias** <br>_optional_           | string                                                                                                                                               |
+| **deployId** <br>_optional_              | string                                                                                                                                               |
+| **deployStage** <br>_optional_           | enum (UNKNOWN, PRE_DOWNLOAD, DOWNLOADING, POST_DOWNLOAD, STAGING, PRE_RESTART, RESTARTING, POST_RESTART, SERVING_BUILD, STOPPING, STOPPED)           |
+| **envId** <br>_optional_                 | string                                                                                                                                               |
+| **errorCode** <br>_optional_             | integer (int32)                                                                                                                                      |
+| **errorMessage** <br>_optional_          | string                                                                                                                                               |
+| **extraInfo** <br>_optional_             | < string, string > map                                                                                                                               |
+| **failCount** <br>_optional_             | integer (int32)                                                                                                                                      |
+
+<a name="pingrequestbean"></a>
 
 ### PingRequestBean
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|hostId||false|string||
-|hostName||false|string||
-|hostIp||false|string||
-|groups||false|string array||
-|reports||false|PingReportBean array||
 
+| Name                                | Schema                                                            |
+| ----------------------------------- | ----------------------------------------------------------------- |
+| **accountId** <br>_optional_        | string                                                            |
+| **agentVersion** <br>_optional_     | string                                                            |
+| **autoscalingGroup** <br>_optional_ | string                                                            |
+| **availabilityZone** <br>_optional_ | string                                                            |
+| **ec2Tags** <br>_optional_          | string                                                            |
+| **groups** <br>_optional_           | < string > array                                                  |
+| **hostId** <br>_optional_           | string                                                            |
+| **hostIp** <br>_optional_           | string                                                            |
+| **hostName** <br>_optional_         | string                                                            |
+| **reports** <br>_optional_          | < [PingReportBean](#pingreportbean) > array                       |
+| **stageType** <br>_optional_        | enum (DEFAULT, PRODUCTION, CONTROL, CANARY, LATEST, DEV, STAGING) |
+
+<a name="pingresponsebean"></a>
 
 ### PingResponseBean
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|opCode||false|enum (NOOP, DEPLOY, RESTART, DELETE, WAIT, ROLLBACK, STOP)||
-|deployGoal||false|DeployGoalBean||
 
+| Name                          | Schema                                                     |
+| ----------------------------- | ---------------------------------------------------------- |
+| **deployGoal** <br>_optional_ | [DeployGoalBean](#deploygoalbean)                          |
+| **opCode** <br>_optional_     | enum (NOOP, DEPLOY, RESTART, DELETE, WAIT, ROLLBACK, STOP) |
+
+<a name="promotebean"></a>
 
 ### PromoteBean
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|type||false|enum (MANUAL, AUTO)||
-|schedule||false|string||
-|delay||false|integer (int32)||
-|envId||false|string||
-|lastOperator||false|string||
-|lastUpdate||false|integer (int64)||
-|predStage||false|string||
-|queueSize||false|integer (int32)||
-|disablePolicy||false|enum (MANUAL, AUTO)||
-|failPolicy||false|enum (CONTINUE, DISABLE, ROLLBACK)||
 
+| Name                             | Description                                          | Schema                             |
+| -------------------------------- | ---------------------------------------------------- | ---------------------------------- |
+| **delay** <br>_optional_         | **Minimum value** : `0`                              | integer (int32)                    |
+| **disablePolicy** <br>_optional_ |                                                      | enum (MANUAL, AUTO)                |
+| **envId** <br>_optional_         |                                                      | string                             |
+| **failPolicy** <br>_optional_    |                                                      | enum (CONTINUE, DISABLE, ROLLBACK) |
+| **lastOperator** <br>_optional_  |                                                      | string                             |
+| **lastUpdate** <br>_optional_    |                                                      | integer (int64)                    |
+| **predStage** <br>_optional_     |                                                      | string                             |
+| **queueSize** <br>_optional_     | **Minimum value** : `1` <br>**Maximum value** : `10` | integer (int32)                    |
+| **schedule** <br>_optional_      |                                                      | string                             |
+| **type** <br>_required_          |                                                      | enum (MANUAL, AUTO)                |
+
+<a name="ratingbean"></a>
+
+### RatingBean
+
+| Name                          | Schema          |
+| ----------------------------- | --------------- |
+| **author** <br>_optional_     | string          |
+| **createDate** <br>_optional_ | integer (int64) |
+| **feedback** <br>_optional_   | string          |
+| **id** <br>_optional_         | string          |
+| **rating** <br>_optional_     | string          |
+
+<a name="schedulebean"></a>
+
+### ScheduleBean
+
+| Name                              | Schema                                           |
+| --------------------------------- | ------------------------------------------------ |
+| **cooldownTimes** <br>_optional_  | string                                           |
+| **currentSession** <br>_optional_ | integer (int32)                                  |
+| **hostNumbers** <br>_optional_    | string                                           |
+| **id** <br>_optional_             | string                                           |
+| **state** <br>_optional_          | enum (NOT_STARTED, RUNNING, COOLING_DOWN, FINAL) |
+| **stateStartTime** <br>_optional_ | integer (int64)                                  |
+| **totalSessions** <br>_optional_  | integer (int32)                                  |
+
+<a name="tagbean"></a>
 
 ### TagBean
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|id||false|string||
-|value||false|enum (BAD_BUILD, GOOD_BUILD, ENABLE_ENV, DISABLE_ENV)||
-|targetType||false|enum (BUILD, ENVIRONMENT, TELETRAAN)||
-|targetId||false|string||
-|operator||false|string||
-|createdDate||false|integer (int64)||
-|comments||false|string||
-|metaInfo||false|string||
 
+| Name                           | Schema                                                                 |
+| ------------------------------ | ---------------------------------------------------------------------- |
+| **comments** <br>_optional_    | string                                                                 |
+| **createdDate** <br>_optional_ | integer (int64)                                                        |
+| **id** <br>_optional_          | string                                                                 |
+| **metaInfo** <br>_optional_    | string                                                                 |
+| **operator** <br>_optional_    | string                                                                 |
+| **targetId** <br>_optional_    | string                                                                 |
+| **targetType** <br>_optional_  | enum (BUILD, ENVIRONMENT, TELETRAAN)                                   |
+| **value** <br>_optional_       | enum (BAD_BUILD, GOOD_BUILD, CERTIFIED_BUILD, ENABLE_ENV, DISABLE_ENV) |
+
+<a name="tokenrolesbean"></a>
 
 ### TokenRolesBean
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|name||false|string||
-|resource||false|string||
-|type||false|enum (ENV, GROUP, SYSTEM)||
-|token||false|string||
-|role||true|enum (READER, PINGER, PUBLISHER, OPERATOR, ADMIN)||
-|expireDate||false|integer (int64)||
 
+| Name                          | Schema                                                                                      |
+| ----------------------------- | ------------------------------------------------------------------------------------------- |
+| **expireDate** <br>_optional_ | integer (int64)                                                                             |
+| **name** <br>_optional_       | string                                                                                      |
+| **resource** <br>_optional_   | string                                                                                      |
+| **role** <br>_required_       | enum (READ, READER, PINGER, PUBLISHER, EXECUTE, WRITE, DELETE, OPERATOR, ADMIN)             |
+| **token** <br>_optional_      | string                                                                                      |
+| **type** <br>_optional_       | enum (ENV, GROUP, SYSTEM, ENV_STAGE, PLACEMENT, BASE_IMAGE, SECURITY_ZONE, IAM_ROLE, BUILD) |
+
+<a name="userrolesbean"></a>
 
 ### UserRolesBean
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|name||false|string||
-|resource||false|string||
-|type||false|enum (ENV, GROUP, SYSTEM)||
-|role||true|enum (READER, PINGER, PUBLISHER, OPERATOR, ADMIN)||
 
+| Name                        | Schema                                                                                      |
+| --------------------------- | ------------------------------------------------------------------------------------------- |
+| **name** <br>_optional_     | string                                                                                      |
+| **resource** <br>_optional_ | string                                                                                      |
+| **role** <br>_required_     | enum (READ, READER, PINGER, PUBLISHER, EXECUTE, WRITE, DELETE, OPERATOR, ADMIN)             |
+| **type** <br>_optional_     | enum (ENV, GROUP, SYSTEM, ENV_STAGE, PLACEMENT, BASE_IMAGE, SECURITY_ZONE, IAM_ROLE, BUILD) |
+
+<a name="webhookbean"></a>
 
 ### WebHookBean
-|Name|Description|Required|Schema|Default|
-|----|----|----|----|----|
-|method||false|string||
-|url||false|string||
-|version||false|string||
-|headers||false|string||
-|body||false|string||
 
-
+| Name                       | Schema |
+| -------------------------- | ------ |
+| **body** <br>_optional_    | string |
+| **headers** <br>_optional_ | string |
+| **method** <br>_optional_  | string |
+| **url** <br>_optional_     | string |
+| **version** <br>_optional_ | string |
 
 ## Enums
 
 ### HostState
 
-  Copyright 2016 Pinterest, Inc.
+Copyright 2016 Pinterest, Inc.
 
- 
+Licensed under the Apache License, Version 2.0 (the "License");
 
-  Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
 
-  you may not use this file except in compliance with the License.
-
-  You may obtain a copy of the License at
-
-   
+You may obtain a copy of the License at
 
       http://www.apache.org/licenses/LICENSE-2.0
 
-     
+Unless required by applicable law or agreed to in writing, software
 
-  Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
 
-  distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
 
-  See the License for the specific language governing permissions and
-
-  limitations under the License.
+limitations under the License.
 
 ### AcceptanceStatus
 
-  Copyright 2016 Pinterest, Inc.
+Copyright 2016 Pinterest, Inc.
 
- 
+Licensed under the Apache License, Version 2.0 (the "License");
 
-  Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
 
-  you may not use this file except in compliance with the License.
-
-  You may obtain a copy of the License at
-
-   
+You may obtain a copy of the License at
 
       http://www.apache.org/licenses/LICENSE-2.0
 
-     
 
-  Unless required by applicable law or agreed to in writing, software
 
-  distributed under the License is distributed on an "AS IS" BASIS,
+Unless required by applicable law or agreed to in writing, software
 
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+distributed under the License is distributed on an "AS IS" BASIS,
 
-  See the License for the specific language governing permissions and
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
-  limitations under the License.
+See the License for the specific language governing permissions and
+
+limitations under the License.
 
 ### TagTargetType
 
 /
 
-  Copyright 2016 Pinterest, Inc.
+Copyright 2016 Pinterest, Inc.
 
- 
+Licensed under the Apache License, Version 2.0 (the "License");
 
-  Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
 
-  you may not use this file except in compliance with the License.
-
-  You may obtain a copy of the License at
-
- 
+You may obtain a copy of the License at
 
       http://www.apache.org/licenses/LICENSE-2.0
 
- 
+Unless required by applicable law or agreed to in writing, software
 
-  Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
 
-  distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
 
-  See the License for the specific language governing permissions and
-
-  limitations under the License.
+limitations under the License.
 
 ### DeployState
 
-  Copyright 2016 Pinterest, Inc.
+Copyright 2016 Pinterest, Inc.
 
- 
+Licensed under the Apache License, Version 2.0 (the "License");
 
-  Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
 
-  you may not use this file except in compliance with the License.
-
-  You may obtain a copy of the License at
-
-   
+You may obtain a copy of the License at
 
       http://www.apache.org/licenses/LICENSE-2.0
 
-     
 
-  Unless required by applicable law or agreed to in writing, software
 
-  distributed under the License is distributed on an "AS IS" BASIS,
+Unless required by applicable law or agreed to in writing, software
 
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+distributed under the License is distributed on an "AS IS" BASIS,
 
-  See the License for the specific language governing permissions and
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
-  limitations under the License.
+See the License for the specific language governing permissions and
+
+limitations under the License.
 
 ### AgentStatus
 
-  Copyright 2016 Pinterest, Inc.
+Copyright 2016 Pinterest, Inc.
 
- 
+Licensed under the Apache License, Version 2.0 (the "License");
 
-  Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
 
-  you may not use this file except in compliance with the License.
-
-  You may obtain a copy of the License at
-
-   
+You may obtain a copy of the License at
 
       http://www.apache.org/licenses/LICENSE-2.0
 
-     
 
-  Unless required by applicable law or agreed to in writing, software
 
-  distributed under the License is distributed on an "AS IS" BASIS,
+Unless required by applicable law or agreed to in writing, software
 
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+distributed under the License is distributed on an "AS IS" BASIS,
 
-  See the License for the specific language governing permissions and
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
-  limitations under the License.
+See the License for the specific language governing permissions and
+
+limitations under the License.
 
 ### HotfixState
 
-  Copyright 2016 Pinterest, Inc.
+Copyright 2016 Pinterest, Inc.
 
- 
+Licensed under the Apache License, Version 2.0 (the "License");
 
-  Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
 
-  you may not use this file except in compliance with the License.
-
-  You may obtain a copy of the License at
-
-   
+You may obtain a copy of the License at
 
       http://www.apache.org/licenses/LICENSE-2.0
 
-     
 
-  Unless required by applicable law or agreed to in writing, software
 
-  distributed under the License is distributed on an "AS IS" BASIS,
+Unless required by applicable law or agreed to in writing, software
 
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+distributed under the License is distributed on an "AS IS" BASIS,
 
-  See the License for the specific language governing permissions and
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
-  limitations under the License.
+See the License for the specific language governing permissions and
 
-### Resource
-
-  Copyright 2016 Pinterest, Inc.
-
- 
-
-  Licensed under the Apache License, Version 2.0 (the "License");
-
-  you may not use this file except in compliance with the License.
-
-  You may obtain a copy of the License at
-
-   
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
-     
-
-  Unless required by applicable law or agreed to in writing, software
-
-  distributed under the License is distributed on an "AS IS" BASIS,
-
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-
-  See the License for the specific language governing permissions and
-
-  limitations under the License.
+limitations under the License.
 
 ### EnvState
 
-  Copyright 2016 Pinterest, Inc.
+Copyright 2016 Pinterest, Inc.
 
- 
+Licensed under the Apache License, Version 2.0 (the "License");
 
-  Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
 
-  you may not use this file except in compliance with the License.
-
-  You may obtain a copy of the License at
-
-   
+You may obtain a copy of the License at
 
       http://www.apache.org/licenses/LICENSE-2.0
 
-     
 
-  Unless required by applicable law or agreed to in writing, software
 
-  distributed under the License is distributed on an "AS IS" BASIS,
+Unless required by applicable law or agreed to in writing, software
 
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+distributed under the License is distributed on an "AS IS" BASIS,
 
-  See the License for the specific language governing permissions and
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
-  limitations under the License.
+See the License for the specific language governing permissions and
+
+limitations under the License.
 
 ### TagValue
 
 /
 
-  Copyright 2016 Pinterest, Inc.
+Copyright 2016 Pinterest, Inc.
 
- 
+Licensed under the Apache License, Version 2.0 (the "License");
 
-  Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
 
-  you may not use this file except in compliance with the License.
-
-  You may obtain a copy of the License at
-
- 
+You may obtain a copy of the License at
 
       http://www.apache.org/licenses/LICENSE-2.0
 
- 
+Unless required by applicable law or agreed to in writing, software
 
-  Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
 
-  distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
 
-  See the License for the specific language governing permissions and
-
-  limitations under the License.
+limitations under the License.
 
 ### PromoteType
 
-  Copyright 2016 Pinterest, Inc.
+Copyright 2016 Pinterest, Inc.
 
- 
+Licensed under the Apache License, Version 2.0 (the "License");
 
-  Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
 
-  you may not use this file except in compliance with the License.
-
-  You may obtain a copy of the License at
-
-   
+You may obtain a copy of the License at
 
       http://www.apache.org/licenses/LICENSE-2.0
 
-     
 
-  Unless required by applicable law or agreed to in writing, software
 
-  distributed under the License is distributed on an "AS IS" BASIS,
+Unless required by applicable law or agreed to in writing, software
 
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+distributed under the License is distributed on an "AS IS" BASIS,
 
-  See the License for the specific language governing permissions and
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
-  limitations under the License.
+See the License for the specific language governing permissions and
+
+limitations under the License.
 
 ### AgentState
 
-  Copyright 2016 Pinterest, Inc.
+Copyright 2016 Pinterest, Inc.
 
- 
+Licensed under the Apache License, Version 2.0 (the "License");
 
-  Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
 
-  you may not use this file except in compliance with the License.
-
-  You may obtain a copy of the License at
-
-   
+You may obtain a copy of the License at
 
       http://www.apache.org/licenses/LICENSE-2.0
 
-     
 
-  Unless required by applicable law or agreed to in writing, software
 
-  distributed under the License is distributed on an "AS IS" BASIS,
+Unless required by applicable law or agreed to in writing, software
 
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+distributed under the License is distributed on an "AS IS" BASIS,
 
-  See the License for the specific language governing permissions and
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
-  limitations under the License.
+See the License for the specific language governing permissions and
+
+limitations under the License.
 
 ### EnvironState
 
 /
 
-  Copyright 2016 Pinterest, Inc.
+Copyright 2016 Pinterest, Inc.
 
- 
+Licensed under the Apache License, Version 2.0 (the "License");
 
-  Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
 
-  you may not use this file except in compliance with the License.
-
-  You may obtain a copy of the License at
-
- 
+You may obtain a copy of the License at
 
        http://www.apache.org/licenses/LICENSE-2.0
 
- 
+Unless required by applicable law or agreed to in writing, software
 
-  Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
 
-  distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
 
-  See the License for the specific language governing permissions and
-
-  limitations under the License.
+limitations under the License.
 
 ### TagSyncState
 
-  INIT:
+INIT:
 
        the initial state, environment is ready for tag sync workers
 
-  PROCESSING:
+PROCESSING:
 
        host_tags table is not in-sync with host ec2 tags, and tag sync workers are currently working on it
 
-  ERROR:
+ERROR:
 
        failed to sync host_tags
 
-  FINISHED:
+FINISHED:
 
        currently host_tags table is in-sync with host ec2 tags in this environment.
 
 ### PromoteDisablePolicy
 
-  Copyright 2016 Pinterest, Inc.
+Copyright 2016 Pinterest, Inc.
 
- 
+Licensed under the Apache License, Version 2.0 (the "License");
 
-  Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
 
-  you may not use this file except in compliance with the License.
-
-  You may obtain a copy of the License at
-
-   
+You may obtain a copy of the License at
 
       http://www.apache.org/licenses/LICENSE-2.0
 
-     
 
-  Unless required by applicable law or agreed to in writing, software
 
-  distributed under the License is distributed on an "AS IS" BASIS,
+Unless required by applicable law or agreed to in writing, software
 
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+distributed under the License is distributed on an "AS IS" BASIS,
 
-  See the License for the specific language governing permissions and
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
-  limitations under the License.
+See the License for the specific language governing permissions and
+
+limitations under the License.
 
 ### DeployStage
 
-  Copyright 2016 Pinterest, Inc.
+Copyright 2016 Pinterest, Inc.
 
- 
+Licensed under the Apache License, Version 2.0 (the "License");
 
-  Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
 
-  you may not use this file except in compliance with the License.
-
-  You may obtain a copy of the License at
-
-   
+You may obtain a copy of the License at
 
       http://www.apache.org/licenses/LICENSE-2.0
 
-     
 
-  Unless required by applicable law or agreed to in writing, software
 
-  distributed under the License is distributed on an "AS IS" BASIS,
+Unless required by applicable law or agreed to in writing, software
 
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+distributed under the License is distributed on an "AS IS" BASIS,
 
-  See the License for the specific language governing permissions and
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
-  limitations under the License.
+See the License for the specific language governing permissions and
+
+limitations under the License.
 
 ### ScheduleState
 
-  Copyright 2016 Pinterest, Inc.
+Copyright 2016 Pinterest, Inc.
 
- 
+Licensed under the Apache License, Version 2.0 (the "License");
 
-  Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
 
-  you may not use this file except in compliance with the License.
-
-  You may obtain a copy of the License at
-
-   
+You may obtain a copy of the License at
 
       http://www.apache.org/licenses/LICENSE-2.0
 
-     
 
-  Unless required by applicable law or agreed to in writing, software
 
-  distributed under the License is distributed on an "AS IS" BASIS,
+Unless required by applicable law or agreed to in writing, software
 
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+distributed under the License is distributed on an "AS IS" BASIS,
 
-  See the License for the specific language governing permissions and
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
-  limitations under the License.
+See the License for the specific language governing permissions and
+
+limitations under the License.
 
 ### OpCode
 
-  Copyright 2016 Pinterest, Inc.
+Copyright 2016 Pinterest, Inc.
 
- 
+Licensed under the Apache License, Version 2.0 (the "License");
 
-  Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
 
-  you may not use this file except in compliance with the License.
-
-  You may obtain a copy of the License at
-
-   
+You may obtain a copy of the License at
 
       http://www.apache.org/licenses/LICENSE-2.0
 
-     
 
-  Unless required by applicable law or agreed to in writing, software
 
-  distributed under the License is distributed on an "AS IS" BASIS,
+Unless required by applicable law or agreed to in writing, software
 
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+distributed under the License is distributed on an "AS IS" BASIS,
 
-  See the License for the specific language governing permissions and
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
-  limitations under the License.
+See the License for the specific language governing permissions and
+
+limitations under the License.
 
 ### PromoteFailPolicy
 
-  Copyright 2016 Pinterest, Inc.
+Copyright 2016 Pinterest, Inc.
 
- 
+Licensed under the Apache License, Version 2.0 (the "License");
 
-  Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
 
-  you may not use this file except in compliance with the License.
-
-  You may obtain a copy of the License at
-
-   
+You may obtain a copy of the License at
 
       http://www.apache.org/licenses/LICENSE-2.0
 
-     
 
-  Unless required by applicable law or agreed to in writing, software
 
-  distributed under the License is distributed on an "AS IS" BASIS,
+Unless required by applicable law or agreed to in writing, software
 
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+distributed under the License is distributed on an "AS IS" BASIS,
 
-  See the License for the specific language governing permissions and
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
-  limitations under the License.
+See the License for the specific language governing permissions and
+
+limitations under the License.
 
 ### OverridePolicy
 
-  Copyright 2016 Pinterest, Inc.
+Copyright 2016 Pinterest, Inc.
 
- 
+Licensed under the Apache License, Version 2.0 (the "License");
 
-  Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
 
-  you may not use this file except in compliance with the License.
-
-  You may obtain a copy of the License at
-
-   
+You may obtain a copy of the License at
 
       http://www.apache.org/licenses/LICENSE-2.0
 
-     
 
-  Unless required by applicable law or agreed to in writing, software
 
-  distributed under the License is distributed on an "AS IS" BASIS,
+Unless required by applicable law or agreed to in writing, software
 
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+distributed under the License is distributed on an "AS IS" BASIS,
 
-  See the License for the specific language governing permissions and
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
-  limitations under the License.
+See the License for the specific language governing permissions and
+
+limitations under the License.
+
+### EnvType
+
+Copyright 2020 Pinterest, Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+
+you may not use this file except in compliance with the License.
+
+You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+
+distributed under the License is distributed on an "AS IS" BASIS,
+
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+
+See the License for the specific language governing permissions and
+
+limitations under the License.
 
 ### AcceptanceType
 
-  Copyright 2016 Pinterest, Inc.
+Copyright 2016 Pinterest, Inc.
 
- 
+Licensed under the Apache License, Version 2.0 (the "License");
 
-  Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
 
-  you may not use this file except in compliance with the License.
-
-  You may obtain a copy of the License at
-
-   
+You may obtain a copy of the License at
 
       http://www.apache.org/licenses/LICENSE-2.0
 
-     
 
-  Unless required by applicable law or agreed to in writing, software
 
-  distributed under the License is distributed on an "AS IS" BASIS,
+Unless required by applicable law or agreed to in writing, software
 
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+distributed under the License is distributed on an "AS IS" BASIS,
 
-  See the License for the specific language governing permissions and
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
-  limitations under the License.
+See the License for the specific language governing permissions and
+
+limitations under the License.
 
 ### DeployType
 
-  Copyright 2016 Pinterest, Inc.
+Copyright 2016 Pinterest, Inc.
 
- 
+Licensed under the Apache License, Version 2.0 (the "License");
 
-  Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
 
-  you may not use this file except in compliance with the License.
-
-  You may obtain a copy of the License at
-
-   
+You may obtain a copy of the License at
 
       http://www.apache.org/licenses/LICENSE-2.0
 
-     
 
-  Unless required by applicable law or agreed to in writing, software
 
-  distributed under the License is distributed on an "AS IS" BASIS,
+Unless required by applicable law or agreed to in writing, software
 
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+distributed under the License is distributed on an "AS IS" BASIS,
 
-  See the License for the specific language governing permissions and
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
-  limitations under the License.
+See the License for the specific language governing permissions and
 
-### Role
+limitations under the License.
 
-  Copyright 2016 Pinterest, Inc.
+### DeployConstraintType
 
- 
+GROUP_BY_GROUP:
 
-  Licensed under the Apache License, Version 2.0 (the "License");
+       randomly choose X num of hosts from one group, and ONLY deploy this group,
 
-  you may not use this file except in compliance with the License.
+       when all the hosts in this group finish, proceed to the next group
 
-  You may obtain a copy of the License at
+ALL_GROUPS_IN_PARALLEL:
 
-   
+       randomly choose X num of hosts from EACH group, and deploy at the same time
 
-      http://www.apache.org/licenses/LICENSE-2.0
+### TeletraanPrincipalRole
 
-     
-
-  Unless required by applicable law or agreed to in writing, software
-
-  distributed under the License is distributed on an "AS IS" BASIS,
-
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-
-  See the License for the specific language governing permissions and
-
-  limitations under the License.
+Copyright (c) 2024, Pinterest Inc. All rights reserved.
 
 ### DeployPriority
 
-  Copyright 2016 Pinterest, Inc.
+Copyright 2016 Pinterest, Inc.
 
- 
+Licensed under the Apache License, Version 2.0 (the "License");
 
-  Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
 
-  you may not use this file except in compliance with the License.
-
-  You may obtain a copy of the License at
-
-   
+You may obtain a copy of the License at
 
       http://www.apache.org/licenses/LICENSE-2.0
 
-     
 
-  Unless required by applicable law or agreed to in writing, software
 
-  distributed under the License is distributed on an "AS IS" BASIS,
+Unless required by applicable law or agreed to in writing, software
 
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+distributed under the License is distributed on an "AS IS" BASIS,
 
-  See the License for the specific language governing permissions and
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 
-  limitations under the License.
+See the License for the specific language governing permissions and
+
+limitations under the License.

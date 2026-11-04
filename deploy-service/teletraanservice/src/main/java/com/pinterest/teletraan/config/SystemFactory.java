@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Pinterest, Inc.
+ * Copyright (c) 2016-2024 Pinterest, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,22 +16,23 @@
 package com.pinterest.teletraan.config;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.pinterest.deployservice.common.Constants;
 
 public class SystemFactory {
     private static final String DEFAULT_DASHBOARD_URL = "http://localhost:8888";
 
-    @JsonProperty
-    private String dashboardUrl = DEFAULT_DASHBOARD_URL;
+    @JsonProperty private String dashboardUrl = DEFAULT_DASHBOARD_URL;
+
+    @JsonProperty private String changeFeedUrl;
+
+    @JsonProperty private long agentCountCacheTtl = 10 * 1000l;
+
+    @JsonProperty private long maxParallelThreshold = 10000;
+
+    @JsonProperty private boolean aclManagementEnabled = true;
 
     @JsonProperty
-    private String changeFeedUrl;
-
-    @JsonProperty
-    private String clientError = Constants.CLIENT_ERROR_SHORT;
-
-    @JsonProperty
-    private long agentCountCacheTtl = 10 * 1000;
+    private String aclManagementDisabledMessage =
+            "ACL management is disabled. Please contact your admin for modification.";
 
     public String getDashboardUrl() {
         return dashboardUrl;
@@ -49,19 +50,35 @@ public class SystemFactory {
         this.changeFeedUrl = changeFeedUrl;
     }
 
-    public String getClientError() {
-        return clientError;
-    }
-
-    public void setClientError(String clientError) {
-        this.clientError = clientError;
-    }
-
     public Long getAgentCountCacheTtl() {
         return agentCountCacheTtl;
     }
 
     public void setAgentCountCacheTtl(Long agentCountCacheTtl) {
         this.agentCountCacheTtl = agentCountCacheTtl;
+    }
+
+    public Long getMaxParallelThreshold() {
+        return maxParallelThreshold;
+    }
+
+    public void setMaxParallelThreshold(Long maxParallelThreshold) {
+        this.maxParallelThreshold = maxParallelThreshold;
+    }
+
+    public boolean isAclManagementEnabled() {
+        return aclManagementEnabled;
+    }
+
+    public void setAclManagementEnabled(boolean aclManagementEnabled) {
+        this.aclManagementEnabled = aclManagementEnabled;
+    }
+
+    public String getAclManagementDisabledMessage() {
+        return aclManagementDisabledMessage;
+    }
+
+    public void setAclManagementDisabledMessage(String aclManagementDisabledMessage) {
+        this.aclManagementDisabledMessage = aclManagementDisabledMessage;
     }
 }

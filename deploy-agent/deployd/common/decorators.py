@@ -3,9 +3,9 @@
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-#  
+#
 #     http://www.apache.org/licenses/LICENSE-2.0
-#    
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -13,9 +13,10 @@
 # limitations under the License.
 
 import time
+from typing import Callable
 
 
-def singleton(non_singleton_cls):
+def singleton(non_singleton_cls) -> Callable:
     """Decorator to make sure there is only one instance of a class.
     Args:
         cls: A class.
@@ -36,7 +37,7 @@ def singleton(non_singleton_cls):
     return getinstance
 
 
-def retry(ExceptionToCheck, tries=4, delay=3, backoff=2):
+def retry(ExceptionToCheck, tries=4, delay=3, backoff=2) -> Callable:
     """Retry calling the decorated function using an exponential backoff.
 
     Similar to utils.decorators.retry() but customized slightly for operations tools.

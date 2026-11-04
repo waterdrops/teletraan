@@ -1,12 +1,12 @@
 /**
- * Copyright 2016 Pinterest, Inc.
+ * Copyright (c) 2016-2024 Pinterest, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *  
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *    
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,33 +16,10 @@
 package com.pinterest.deployservice.bean;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import org.apache.commons.lang.builder.ReflectionToStringBuilder;
-import org.hibernate.validator.constraints.NotEmpty;
+import javax.validation.constraints.NotEmpty;
+import org.apache.commons.lang3.builder.ReflectionToStringBuilder;
 
-/**
- * Keep the bean and table in sync
- * <p>
- * CREATE TABLE hotfixes (
- * id              VARCHAR(22)     NOT NULL,
- * env_name        VARCHAR(64)     NOT NULL,
- * state           VARCHAR(32)     NOT NULL,
- * operator        VARCHAR(32)     NOT NULL,
- * job_num         VARCHAR(32),
- * job_name        VARCHAR(64)     NOT NULL,
- * base_deploy     VARCHAR(22)     NOT NULL,
- * base_commit     VARCHAR(64),
- * repo            VARCHAR(64)     NOT NULL,
- * commits         VARCHAR(2048)   NOT NULL,
- * timeout         INT             NOT NULL,
- * start_time      BIGINT          NOT NULL,
- * progress        INT             NOT NULL,
- * error_message   VARCHAR(2048),
- * last_worked_on  BIGINT          NOT NULL,
- * PRIMARY KEY    (id)
- * );
- */
-
-public class HotfixBean implements Updatable {
+public class HotfixBean extends BaseBean implements Updatable {
     private String id;
 
     @NotEmpty
@@ -57,6 +34,9 @@ public class HotfixBean implements Updatable {
     @JsonProperty("jobName")
     private String job_name;
 
+    @JsonProperty("ciPlatform")
+    private String ci_platform;
+
     @NotEmpty
     @JsonProperty("baseDeployId")
     private String base_deploy;
@@ -66,8 +46,7 @@ public class HotfixBean implements Updatable {
 
     private String repo;
 
-    @NotEmpty
-    private String commits;
+    @NotEmpty private String commits;
 
     private Integer timeout;
 
@@ -124,6 +103,14 @@ public class HotfixBean implements Updatable {
         this.job_name = job_name;
     }
 
+    public String getCI_platform() {
+        return ci_platform;
+    }
+
+    public void setCI_platform(String ci_platform) {
+        this.ci_platform = ci_platform;
+    }
+
     public String getBase_deploy() {
         return base_deploy;
     }
@@ -169,7 +156,7 @@ public class HotfixBean implements Updatable {
     }
 
     public void setOperator(String operator) {
-        this.operator = operator;
+        this.operator = getStringWithinSizeLimit(operator, 32);
     }
 
     public Long getStart_time() {
@@ -212,6 +199,7 @@ public class HotfixBean implements Updatable {
         clause.addColumn("state", state);
         clause.addColumn("job_num", job_num);
         clause.addColumn("job_name", job_name);
+        clause.addColumn("ci_platform", ci_platform);
         clause.addColumn("base_deploy", base_deploy);
         clause.addColumn("base_commit", base_commit);
         clause.addColumn("repo", repo);

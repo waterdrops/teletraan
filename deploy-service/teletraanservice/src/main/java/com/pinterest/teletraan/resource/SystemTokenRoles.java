@@ -1,12 +1,12 @@
 /**
- * Copyright 2016 Pinterest, Inc.
+ * Copyright (c) 2016-2024 Pinterest, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *  
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *    
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,43 +15,50 @@
  */
 package com.pinterest.teletraan.resource;
 
-import com.pinterest.deployservice.bean.Resource;
+import com.pinterest.deployservice.bean.TeletraanPrincipalRole;
 import com.pinterest.deployservice.bean.TokenRolesBean;
 import com.pinterest.teletraan.TeletraanServiceContext;
+import com.pinterest.teletraan.universal.security.ResourceAuthZInfo;
+import com.pinterest.teletraan.universal.security.bean.AuthZResource;
 import io.swagger.annotations.*;
-
+import java.util.List;
+import javax.annotation.security.RolesAllowed;
 import javax.validation.Valid;
 import javax.ws.rs.*;
 import javax.ws.rs.core.*;
-import java.util.List;
 
+@RolesAllowed(TeletraanPrincipalRole.Names.MANAGE_SCRIPT_TOKEN)
 @Path("/v1/system/token_roles")
 @Api(tags = "Script Tokens")
 @SwaggerDefinition(
         tags = {
-                @Tag(name = "Script Tokens", description = "Internal script tokens APIs"),
-        }
-)
+            @Tag(name = "Script Tokens", description = "Internal script tokens APIs"),
+        })
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public class SystemTokenRoles extends TokenRoles {
-    private static final Resource.Type RESOURCE_TYPE = Resource.Type.SYSTEM;
-    private final static String RESOURCE_ID = Resource.ALL;
-
-    @Context
-    UriInfo uriInfo;
+    private static final AuthZResource.Type RESOURCE_TYPE = AuthZResource.Type.SYSTEM;
+    private static final String RESOURCE_ID = AuthZResource.ALL;
 
     public SystemTokenRoles(TeletraanServiceContext context) {
         super(context);
     }
 
+    // BUG-285640: All endpoints (read AND mutate) require MANAGE_SCRIPT_TOKEN. Kept consistent with
+    // EnvTokenRoles even though this resource is not currently registered in TeletraanService and
+    // is therefore unreachable; if/when it is re-enabled the role guard must already be correct.
+    // MANAGE_SCRIPT_TOKEN on a SYSTEM resource is granted only by SYSTEM:* admin (groups: cdp,
+    // sre-sec).
     @GET
     @ApiOperation(
             value = "Get system script tokens",
             notes = "Returns all system TokenRoles objects",
-            response = TokenRolesBean.class, responseContainer = "List")
-    public List<TokenRolesBean> getByResource(@Context SecurityContext sc) throws Exception {
-        return super.getByResource(sc, RESOURCE_ID, RESOURCE_TYPE);
+            response = TokenRolesBean.class,
+            responseContainer = "List")
+    @RolesAllowed(TeletraanPrincipalRole.Names.MANAGE_SCRIPT_TOKEN)
+    @ResourceAuthZInfo(type = AuthZResource.Type.SYSTEM)
+    public List<TokenRolesBean> getByResource() throws Exception {
+        return super.getByResource(RESOURCE_ID, RESOURCE_TYPE);
     }
 
     @GET
@@ -60,20 +67,31 @@ public class SystemTokenRoles extends TokenRoles {
             value = "Get system TokenRoles object by script name",
             notes = "Returns a TokenRoles object for given script name",
             response = TokenRolesBean.class)
-    public TokenRolesBean getByNameAndResource(@Context SecurityContext sc,
-            @ApiParam(value = "Script name.", required = true)@PathParam("scriptName") String scriptName) throws Exception {
-        return super.getByNameAndResource(sc, scriptName, RESOURCE_ID, RESOURCE_TYPE);
+    @RolesAllowed(TeletraanPrincipalRole.Names.MANAGE_SCRIPT_TOKEN)
+    @ResourceAuthZInfo(type = AuthZResource.Type.SYSTEM)
+    public TokenRolesBean getByNameAndResource(
+            @ApiParam(value = "Script name.", required = true) @PathParam("scriptName")
+                    String scriptName)
+            throws Exception {
+        return super.getByNameAndResource(scriptName, RESOURCE_ID, RESOURCE_TYPE);
     }
 
     @PUT
     @Path("/{scriptName : [a-zA-Z0-9\\-_]+}")
     @ApiOperation(
-            value = "Update a system script token",
-            notes = "Updates a TokenRoles object by given script name and replacement TokenRoles object")
-    public void update(@Context SecurityContext sc,
-                       @ApiParam(value = "Script name.", required = true)@PathParam("scriptName") String scriptName,
-                       @ApiParam(value = "TokenRolesBean object.", required = true)TokenRolesBean bean) throws Exception {
-        super.update(sc, bean, scriptName, RESOURCE_ID, RESOURCE_TYPE);
+            value = "Update a system script token role",
+            notes =
+                    "Updates only the role of the token identified by script name."
+                            + " Other body fields are ignored; identity, scope, bearer token and expiry are unchanged.")
+    @RolesAllowed(TeletraanPrincipalRole.Names.MANAGE_SCRIPT_TOKEN)
+    @ResourceAuthZInfo(type = AuthZResource.Type.SYSTEM)
+    public void update(
+            @ApiParam(value = "Script name.", required = true) @PathParam("scriptName")
+                    String scriptName,
+            @ApiParam(value = "Token role; other fields are ignored.", required = true)
+                    TokenRolesBean bean)
+            throws Exception {
+        super.update(bean, scriptName, RESOURCE_ID, RESOURCE_TYPE);
     }
 
     @POST
@@ -81,9 +99,13 @@ public class SystemTokenRoles extends TokenRoles {
             value = "Create a system script token",
             notes = "Creates a specified system wide TokenRole and returns a Response object",
             response = Response.class)
-    public Response create(@Context SecurityContext sc,
-                           @ApiParam(value = "TokenRolesBean object.", required = true)@Valid TokenRolesBean bean) throws Exception {
-        return super.create(sc, bean, RESOURCE_ID, RESOURCE_TYPE);
+    @RolesAllowed(TeletraanPrincipalRole.Names.MANAGE_SCRIPT_TOKEN)
+    @ResourceAuthZInfo(type = AuthZResource.Type.SYSTEM)
+    public Response create(
+            @Context UriInfo uriInfo,
+            @ApiParam(value = "TokenRolesBean object.", required = true) @Valid TokenRolesBean bean)
+            throws Exception {
+        return super.create(uriInfo, bean, RESOURCE_ID, RESOURCE_TYPE);
     }
 
     @DELETE
@@ -91,8 +113,12 @@ public class SystemTokenRoles extends TokenRoles {
     @ApiOperation(
             value = "Delete a system wide script token",
             notes = "Deletes a system wide TokenRoles object by specified script name")
-    public void delete(@Context SecurityContext sc,
-                       @ApiParam(value = "Script name.", required = true)@PathParam("scriptName") String scriptName) throws Exception {
-        super.delete(sc, scriptName, RESOURCE_ID, RESOURCE_TYPE);
+    @RolesAllowed(TeletraanPrincipalRole.Names.MANAGE_SCRIPT_TOKEN)
+    @ResourceAuthZInfo(type = AuthZResource.Type.SYSTEM)
+    public void delete(
+            @ApiParam(value = "Script name.", required = true) @PathParam("scriptName")
+                    String scriptName)
+            throws Exception {
+        super.delete(scriptName, RESOURCE_ID, RESOURCE_TYPE);
     }
 }

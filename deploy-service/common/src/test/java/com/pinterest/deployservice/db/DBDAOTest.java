@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Pinterest, Inc.
+ * Copyright (c) 2016-2024 Pinterest, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,14 +15,13 @@
  */
 package com.pinterest.deployservice.db;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pinterest.deployservice.bean.AcceptanceStatus;
-import com.pinterest.deployservice.bean.AcceptanceType;
 import com.pinterest.deployservice.bean.AgentBean;
 import com.pinterest.deployservice.bean.AgentErrorBean;
 import com.pinterest.deployservice.bean.AgentState;
@@ -32,28 +31,28 @@ import com.pinterest.deployservice.bean.ConfigHistoryBean;
 import com.pinterest.deployservice.bean.DataBean;
 import com.pinterest.deployservice.bean.DeployBean;
 import com.pinterest.deployservice.bean.DeployFilterBean;
-import com.pinterest.deployservice.bean.DeployPriority;
 import com.pinterest.deployservice.bean.DeployQueryResultBean;
 import com.pinterest.deployservice.bean.DeployStage;
 import com.pinterest.deployservice.bean.DeployState;
 import com.pinterest.deployservice.bean.DeployType;
-import com.pinterest.deployservice.bean.EnvState;
 import com.pinterest.deployservice.bean.EnvironBean;
-import com.pinterest.deployservice.bean.EnvironState;
 import com.pinterest.deployservice.bean.GroupRolesBean;
+import com.pinterest.deployservice.bean.HostAgentBean;
 import com.pinterest.deployservice.bean.HostBean;
+import com.pinterest.deployservice.bean.HostBeanWithStatuses;
 import com.pinterest.deployservice.bean.HostState;
-import com.pinterest.deployservice.bean.OverridePolicy;
+import com.pinterest.deployservice.bean.HostTagBean;
+import com.pinterest.deployservice.bean.KnoxStatus;
+import com.pinterest.deployservice.bean.NormandieStatus;
 import com.pinterest.deployservice.bean.PromoteBean;
 import com.pinterest.deployservice.bean.PromoteType;
 import com.pinterest.deployservice.bean.RatingBean;
-import com.pinterest.deployservice.bean.Resource;
-import com.pinterest.deployservice.bean.Role;
 import com.pinterest.deployservice.bean.ScheduleBean;
 import com.pinterest.deployservice.bean.ScheduleState;
 import com.pinterest.deployservice.bean.TagBean;
 import com.pinterest.deployservice.bean.TagTargetType;
 import com.pinterest.deployservice.bean.TagValue;
+import com.pinterest.deployservice.bean.TeletraanPrincipalRole;
 import com.pinterest.deployservice.bean.TokenRolesBean;
 import com.pinterest.deployservice.bean.UserRolesBean;
 import com.pinterest.deployservice.common.CommonUtils;
@@ -67,26 +66,18 @@ import com.pinterest.deployservice.dao.DeployDAO;
 import com.pinterest.deployservice.dao.EnvironDAO;
 import com.pinterest.deployservice.dao.GroupDAO;
 import com.pinterest.deployservice.dao.GroupRolesDAO;
+import com.pinterest.deployservice.dao.HostAgentDAO;
 import com.pinterest.deployservice.dao.HostDAO;
+import com.pinterest.deployservice.dao.HostTagDAO;
 import com.pinterest.deployservice.dao.PromoteDAO;
 import com.pinterest.deployservice.dao.RatingDAO;
 import com.pinterest.deployservice.dao.ScheduleDAO;
 import com.pinterest.deployservice.dao.TagDAO;
 import com.pinterest.deployservice.dao.TokenRolesDAO;
 import com.pinterest.deployservice.dao.UserRolesDAO;
-
-import com.ibatis.common.jdbc.ScriptRunner;
-import com.mysql.management.driverlaunched.ServerLauncherSocketFactory;
-import org.apache.commons.dbcp.BasicDataSource;
-import org.apache.commons.lang.builder.EqualsBuilder;
-import org.joda.time.Interval;
-import org.junit.AfterClass;
-import org.junit.BeforeClass;
-import org.junit.Test;
-
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.InputStreamReader;
+import com.pinterest.deployservice.dao.UtilDAO;
+import com.pinterest.deployservice.fixture.EnvironBeanFixture;
+import com.pinterest.teletraan.universal.security.bean.AuthZResource;
 import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -95,14 +86,15 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-
+import org.apache.commons.dbcp.BasicDataSource;
+import org.apache.commons.lang3.builder.EqualsBuilder;
+import org.joda.time.DateTime;
+import org.joda.time.Interval;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 
 public class DBDAOTest {
-
-    private final static String DEFAULT_BASE_DIR = "/tmp/deploy-unit-test";
-    private final static String DEFAULT_DB_NAME = "deploy";
-    private final static int DEFAULT_PORT = 3303;
-
     private static BuildDAO buildDAO;
     private static AgentDAO agentDAO;
     private static AgentErrorDAO agentErrorDAO;
@@ -111,6 +103,7 @@ public class DBDAOTest {
     private static EnvironDAO environDAO;
     private static PromoteDAO promoteDAO;
     private static HostDAO hostDAO;
+    private static HostTagDAO hostTagDAO;
     private static GroupDAO groupDAO;
     private static RatingDAO ratingDAO;
     private static UserRolesDAO userRolesDAO;
@@ -119,58 +112,48 @@ public class DBDAOTest {
     private static ConfigHistoryDAO configHistoryDAO;
     private static TagDAO tagDAO;
     private static ScheduleDAO scheduleDAO;
+    private static UtilDAO utilDAO;
+    private static HostAgentDAO hostAgentDAO;
+    private static BasicDataSource dataSource;
 
-    @BeforeClass
+    @BeforeAll
     public static void setUpClass() throws Exception {
-        try {
-            // making sure we do not have anything running
-            ServerLauncherSocketFactory.shutdown(new File(DEFAULT_BASE_DIR), null);
-        } catch (Exception e) {
-            // ignore
-        }
-        BasicDataSource DATASOURCE = DatabaseUtil.createMXJDataSource(DEFAULT_DB_NAME,
-            DEFAULT_BASE_DIR, DEFAULT_PORT);
-        Connection conn = DATASOURCE.getConnection();
-        ScriptRunner runner = new ScriptRunner(conn, false, true);
-        runner.runScript(new BufferedReader(new InputStreamReader(
-            DBDAOTest.class.getResourceAsStream("/sql/cleanup.sql"))));
-        runner.runScript(new BufferedReader(new InputStreamReader(
-            DBDAOTest.class.getResourceAsStream("/sql/deploy.sql"))));
-        buildDAO = new DBBuildDAOImpl(DATASOURCE);
-        agentDAO = new DBAgentDAOImpl(DATASOURCE);
-        agentErrorDAO = new DBAgentErrorDAOImpl(DATASOURCE);
-        dataDAO = new DBDataDAOImpl(DATASOURCE);
-        deployDAO = new DBDeployDAOImpl(DATASOURCE);
-        environDAO = new DBEnvironDAOImpl(DATASOURCE);
-        promoteDAO = new DBPromoteDAOImpl(DATASOURCE);
-        hostDAO = new DBHostDAOImpl(DATASOURCE);
-        groupDAO = new DBGroupDAOImpl(DATASOURCE);
-        ratingDAO = new DBRatingsDAOImpl(DATASOURCE);
-        userRolesDAO = new DBUserRolesDAOImpl(DATASOURCE);
-        groupRolesDAO = new DBGroupRolesDAOImpl(DATASOURCE);
-        tokenRolesDAO = new DBTokenRolesDAOImpl(DATASOURCE);
-        configHistoryDAO = new DBConfigHistoryDAOImpl(DATASOURCE);
-        tagDAO = new DBTagDAOImpl(DATASOURCE);
-        scheduleDAO = new DBScheduleDAOImpl(DATASOURCE);
+        dataSource = DBUtils.createTestDataSource();
+
+        buildDAO = new DBBuildDAOImpl(dataSource);
+        agentDAO = new DBAgentDAOImpl(dataSource);
+        agentErrorDAO = new DBAgentErrorDAOImpl(dataSource);
+        dataDAO = new DBDataDAOImpl(dataSource);
+        deployDAO = new DBDeployDAOImpl(dataSource);
+        environDAO = new DBEnvironDAOImpl(dataSource);
+        promoteDAO = new DBPromoteDAOImpl(dataSource);
+        hostDAO = new DBHostDAOImpl(dataSource);
+        hostTagDAO = new DBHostTagDAOImpl(dataSource);
+        groupDAO = new DBGroupDAOImpl(dataSource);
+        ratingDAO = new DBRatingsDAOImpl(dataSource);
+        userRolesDAO = new DBUserRolesDAOImpl(dataSource);
+        groupRolesDAO = new DBGroupRolesDAOImpl(dataSource);
+        tokenRolesDAO = new DBTokenRolesDAOImpl(dataSource);
+        configHistoryDAO = new DBConfigHistoryDAOImpl(dataSource);
+        tagDAO = new DBTagDAOImpl(dataSource);
+        scheduleDAO = new DBScheduleDAOImpl(dataSource);
+        hostAgentDAO = new DBHostAgentDAOImpl(dataSource);
+        utilDAO = new DBUtilDAOImpl(dataSource);
     }
 
-    @AfterClass
-    public static void tearDownClass() throws Exception {
-        ServerLauncherSocketFactory.shutdown(new File(DEFAULT_BASE_DIR), null);
+    @AfterEach
+    void tearDown() throws Exception {
+        DBUtils.truncateAllTables(dataSource);
     }
 
     @Test
     public void testDeploymentQueries() throws Exception {
         long now = System.currentTimeMillis();
 
-        BuildBean buildBean1 =
-            genDefaultBuildInfoBean("bbb-1", "s-1", "ccc-1", "r-1", now);
-        BuildBean buildBean2 =
-            genDefaultBuildInfoBean("bbb-2", "s-1", "ccc-1", "r-1", now + 1000);
-        BuildBean buildBean3 =
-            genDefaultBuildInfoBean("bbb-3", "s-1", "ccc-1", "r-1", now + 2000);
-        BuildBean buildBean4 =
-            genDefaultBuildInfoBean("bbb-4", "s-2", "ccc-2", "r-1", now + 3000);
+        BuildBean buildBean1 = genDefaultBuildInfoBean("bbb-1", "s-1", "ccc-1", "r-1", now);
+        BuildBean buildBean2 = genDefaultBuildInfoBean("bbb-2", "s-1", "ccc-1", "r-1", now + 1000);
+        BuildBean buildBean3 = genDefaultBuildInfoBean("bbb-3", "s-1", "ccc-1", "r-1", now + 2000);
+        BuildBean buildBean4 = genDefaultBuildInfoBean("bbb-4", "s-2", "ccc-2", "r-1", now + 3000);
 
         buildDAO.insert(buildBean1);
         buildDAO.insert(buildBean2);
@@ -178,21 +161,20 @@ public class DBDAOTest {
         buildDAO.insert(buildBean4);
 
         DeployBean deployBean1 =
-            genDefaultDeployBean("d-1", "env-1", "bbb-1", now, DeployState.SUCCEEDED);
+                genDefaultDeployBean("d-1", "env-1", "bbb-1", now, DeployState.SUCCEEDED);
         DeployBean deployBean2 =
-            genDefaultDeployBean("d-2", "env-1", "bbb-1", now + 1000, DeployState.SUCCEEDED);
+                genDefaultDeployBean("d-2", "env-1", "bbb-1", now + 1000, DeployState.SUCCEEDED);
         DeployBean deployBean3 =
-            genDefaultDeployBean("d-3", "env-1", "bbb-1", now + 2000, DeployState.RUNNING);
+                genDefaultDeployBean("d-3", "env-1", "bbb-1", now + 2000, DeployState.RUNNING);
         DeployBean deployBean4 =
-            genDefaultDeployBean("d-4", "env-2", "bbb-2", now, DeployState.FAILING);
+                genDefaultDeployBean("d-4", "env-2", "bbb-2", now, DeployState.FAILING);
         // just so we have the build
-        BuildBean buildBeanx =
-            genDefaultBuildInfoBean("d-x", "s-1", "ccc-x", "r-1", now);
+        BuildBean buildBeanx = genDefaultBuildInfoBean("d-x", "s-1", "ccc-x", "r-1", now);
         buildDAO.insert(buildBeanx);
         DeployBean deployBean5 =
-            genDefaultDeployBean("d-5", "env-3", "bcc-x", now, DeployState.SUCCEEDING);
+                genDefaultDeployBean("d-5", "env-3", "bcc-x", now, DeployState.SUCCEEDING);
         DeployBean deployBean6 =
-            genDefaultDeployBean("d-6", "env-2", "bbb-4", now, DeployState.SUCCEEDED);
+                genDefaultDeployBean("d-6", "env-2", "bbb-4", now, DeployState.SUCCEEDED);
 
         deployDAO.insert(deployBean1);
         deployDAO.insert(deployBean2);
@@ -299,11 +281,14 @@ public class DBDAOTest {
 
         deployBean5.setAcc_status(AcceptanceStatus.ACCEPTED);
         deployDAO.update("d-5", deployBean5);
-        List<DeployBean>
-            beans =
-            deployDAO.getAcceptedDeploys("env-3", new Interval(0, Long.MAX_VALUE), 100);
+        List<DeployBean> beans =
+                deployDAO.getAcceptedDeploys("env-3", new Interval(0, Long.MAX_VALUE), 100);
         assertEquals(beans.size(), 1);
         assertEquals(beans.get(0).getDeploy_id(), "d-5");
+
+        assertEquals(
+                envBean1.getEnv_id(),
+                environDAO.getByDeployId(deployBean1.getDeploy_id()).getEnv_id());
 
         buildDAO.delete("bbb-1");
         buildDAO.delete("bbb-2");
@@ -324,14 +309,10 @@ public class DBDAOTest {
     @Test
     public void testBuildDAO() throws Exception {
         long now = System.currentTimeMillis();
-        BuildBean buildBean1 =
-            genDefaultBuildInfoBean("b-1", "sss-1", "c-1", "r-1", now);
-        BuildBean buildBean2 =
-            genDefaultBuildInfoBean("b-2", "sss-1", "c-1", "r-1", now + 1000);
-        BuildBean buildBean22 =
-            genDefaultBuildInfoBean("b-22", "sss-2", "c-1", "r-1", now + 1000);
-        BuildBean buildBean3 =
-            genDefaultBuildInfoBean("b-3", "sss-1", "c-1", "r-1", now + 2000);
+        BuildBean buildBean1 = genDefaultBuildInfoBean("b-1", "sss-1", "c-1", "r-1", now);
+        BuildBean buildBean2 = genDefaultBuildInfoBean("b-2", "sss-1", "c-1", "r-1", now + 1000);
+        BuildBean buildBean22 = genDefaultBuildInfoBean("b-22", "sss-2", "c-1", "r-1", now + 1000);
+        BuildBean buildBean3 = genDefaultBuildInfoBean("b-3", "sss-1", "c-1", "r-1", now + 2000);
 
         buildDAO.insert(buildBean1);
         buildDAO.insert(buildBean2);
@@ -344,9 +325,8 @@ public class DBDAOTest {
         assertEquals(buildDAO.getByCommit7("c-1", "sss-2", 1, 10).size(), 1);
         assertEquals(buildDAO.getBuildNames("sss-", 1, 100).size(), 2);
 
-        List<BuildBean>
-            buildBeans =
-            buildDAO.getAcceptedBuilds("sss-1", null, new Interval(now, Long.MAX_VALUE), 100);
+        List<BuildBean> buildBeans =
+                buildDAO.getAcceptedBuilds("sss-1", null, new Interval(now, Long.MAX_VALUE), 100);
         assertEquals(buildBeans.size(), 2);
         BuildBean bean1 = buildBeans.get(0);
         assertEquals(bean1.getBuild_id(), "b-3");
@@ -365,9 +345,8 @@ public class DBDAOTest {
         List<BuildBean> buildBeans4 = buildDAO.getByName("sss-1", "branch-1", 1, 2);
         assertEquals(buildBeans4.size(), 2);
 
-        List<BuildBean>
-            allBuildBeans =
-            buildDAO.getBuildsFromIds(Arrays.asList("b-1", "b-2", "b-22"));
+        List<BuildBean> allBuildBeans =
+                buildDAO.getBuildsFromIds(Arrays.asList("b-1", "b-2", "b-22"));
         assertEquals(3, allBuildBeans.size());
 
         allBuildBeans = buildDAO.getBuildsFromIds(Arrays.asList("b-1", "b-2", "Not There"));
@@ -387,15 +366,29 @@ public class DBDAOTest {
     }
 
     @Test
+    public void testDeployAcceptedDelayed() throws Exception {
+        long sucDate = System.currentTimeMillis();
+        Interval interval = new Interval(sucDate - 1000, sucDate + 1000);
+        DeployBean deployBean =
+                genDefaultDeployBean("d-1", "env-1", "bbb-1", 1000, DeployState.SUCCEEDED);
+        deployBean.setAcc_status(AcceptanceStatus.ACCEPTED);
+        deployBean.setStart_date(sucDate);
+        deployBean.setSuc_date(sucDate);
+        deployDAO.insert(deployBean);
+        List<DeployBean> acceptedDeploysDelayed =
+                deployDAO.getAcceptedDeploysDelayed(deployBean.getEnv_id(), interval);
+        assertEquals(1, acceptedDeploysDelayed.size());
+        assertEquals(deployBean.getDeploy_id(), acceptedDeploysDelayed.get(0).getDeploy_id());
+    }
+
+    @Test
     public void testAgentUpdate() throws Exception {
-        AgentBean
-            agentBean1 =
-            genDefaultAgentBean("h1", "id-1", "e-1", "d-1", DeployStage.PRE_DOWNLOAD);
+        AgentBean agentBean1 =
+                genDefaultAgentBean("h1", "id-1", "e-1", "d-1", DeployStage.PRE_DOWNLOAD);
         agentDAO.insertOrUpdate(agentBean1);
 
-        AgentBean
-            updateBean1 =
-            genDefaultAgentBean("h1", "id-1", "e-1", "d-1", DeployStage.POST_DOWNLOAD);
+        AgentBean updateBean1 =
+                genDefaultAgentBean("h1", "id-1", "e-1", "d-1", DeployStage.POST_DOWNLOAD);
         updateBean1.setFirst_deploy_time(10L);
         agentDAO.insertOrUpdate(updateBean1);
 
@@ -413,15 +406,12 @@ public class DBDAOTest {
 
     @Test
     public void testAgentUpdateMultiple() throws Exception {
-        AgentBean
-            agentBean1 =
-            genDefaultAgentBean("h5", "id-5", "e-2", "d-1", DeployStage.PRE_DOWNLOAD);
-        AgentBean
-            agentBean2 =
-            genDefaultAgentBean("h6", "id-6", "e-2", "d-1", DeployStage.PRE_DOWNLOAD);
-        AgentBean
-            agentBean3 =
-            genDefaultAgentBean("h7", "id-7", "e-2", "d-1", DeployStage.PRE_DOWNLOAD);
+        AgentBean agentBean1 =
+                genDefaultAgentBean("h5", "id-5", "e-2", "d-1", DeployStage.PRE_DOWNLOAD);
+        AgentBean agentBean2 =
+                genDefaultAgentBean("h6", "id-6", "e-2", "d-1", DeployStage.PRE_DOWNLOAD);
+        AgentBean agentBean3 =
+                genDefaultAgentBean("h7", "id-7", "e-2", "d-1", DeployStage.PRE_DOWNLOAD);
 
         agentDAO.insertOrUpdate(agentBean1);
         agentDAO.insertOrUpdate(agentBean2);
@@ -444,16 +434,60 @@ public class DBDAOTest {
     }
 
     @Test
+    public void testAgentCountFinishedByDeployWithHostTags() throws Exception {
+        HostTagBean hostTagBean = new HostTagBean();
+        hostTagBean.setHost_id("host-1");
+        hostTagBean.setEnv_id("e-2");
+        hostTagBean.setTag_name("tag-1");
+        hostTagBean.setTag_value("value-1");
+        hostTagBean.setCreate_date(DateTime.now().getMillis());
+        hostTagDAO.insertOrUpdate(hostTagBean);
+        hostTagBean.setHost_id("host-2");
+        hostTagBean.setTag_value("value-2");
+        hostTagDAO.insertOrUpdate(hostTagBean);
+
+        AgentBean agentBean1 =
+                genDefaultAgentBean("h5", "host-1", "e-2", "d-1", DeployStage.SERVING_BUILD);
+        AgentBean agentBean2 =
+                genDefaultAgentBean("h6", "host-2", "e-2", "d-1", DeployStage.SERVING_BUILD);
+
+        agentDAO.insertOrUpdate(agentBean1);
+        agentDAO.insertOrUpdate(agentBean2);
+        List<String> values = Arrays.asList("value-1", "value-2");
+        long count =
+                agentDAO.countFinishedAgentsByDeployWithHostTags("e-2", "d-1", "tag-1", values);
+        assertEquals(2L, count);
+    }
+
+    @Test
+    public void testDeleteHostTags() throws Exception {
+        HostTagBean hostTagBean = new HostTagBean();
+        hostTagBean.setHost_id("host-1");
+        hostTagBean.setEnv_id("e-2");
+        hostTagBean.setTag_name("tag-1");
+        hostTagBean.setTag_value("value-1");
+        hostTagBean.setCreate_date(DateTime.now().getMillis());
+        hostTagDAO.insertOrUpdate(hostTagBean);
+        hostTagBean.setHost_id("host-2");
+        hostTagBean.setTag_value("value-2");
+        hostTagDAO.insertOrUpdate(hostTagBean);
+        List<String> values = Arrays.asList("value-1", "value-2");
+        long count = hostTagDAO.countHostsByEnvIdAndTags("e-2", "tag-1", values);
+        assertEquals(2L, count);
+        hostTagDAO.deleteAllByEnvIdAndHostIds("e-2", Arrays.asList("host-1", "host-2"));
+        count = hostTagDAO.countHostsByEnvIdAndTags("e-2", "tag-1", values);
+        assertEquals(0L, count);
+    }
+
+    @Test
     public void testFirstDeployCount() throws Exception {
-        AgentBean
-            agentBean1 =
-            genDefaultAgentBean("h12", "id-123", "e-12", "d-12", DeployStage.POST_RESTART);
+        AgentBean agentBean1 =
+                genDefaultAgentBean("h12", "id-123", "e-12", "d-12", DeployStage.POST_RESTART);
         agentBean1.setFirst_deploy(true);
         agentBean1.setStatus(AgentStatus.ABORTED_BY_SERVICE);
 
-        AgentBean
-            agentBean2 =
-            genDefaultAgentBean("h22", "id-124", "e-12", "d-12", DeployStage.POST_RESTART);
+        AgentBean agentBean2 =
+                genDefaultAgentBean("h22", "id-124", "e-12", "d-12", DeployStage.POST_RESTART);
         agentBean2.setFirst_deploy(true);
 
         agentDAO.insertOrUpdate(agentBean1);
@@ -467,14 +501,14 @@ public class DBDAOTest {
 
     @Test
     public void testAgentQueries() throws Exception {
-        AgentBean agentBean1 = genDefaultAgentBean(
-            "h-1", "id-1", "e-1", "d-1", DeployStage.POST_RESTART);
-        AgentBean agentBean11 = genDefaultAgentBean(
-            "h-1", "id-1", "e-2", "d-1", DeployStage.SERVING_BUILD);
-        AgentBean agentBean2 = genDefaultAgentBean(
-            "h-2", "id-3", "e-1", "d-2", DeployStage.RESTARTING);
-        AgentBean agentBean3 = genDefaultAgentBean(
-            "h-3", "id-4", "e-1", "d-1", DeployStage.SERVING_BUILD);
+        AgentBean agentBean1 =
+                genDefaultAgentBean("h-1", "id-1", "e-1", "d-1", DeployStage.POST_RESTART);
+        AgentBean agentBean11 =
+                genDefaultAgentBean("h-1", "id-1", "e-2", "d-1", DeployStage.SERVING_BUILD);
+        AgentBean agentBean2 =
+                genDefaultAgentBean("h-2", "id-3", "e-1", "d-2", DeployStage.RESTARTING);
+        AgentBean agentBean3 =
+                genDefaultAgentBean("h-3", "id-4", "e-1", "d-1", DeployStage.SERVING_BUILD);
         agentBean3.setFirst_deploy_time(System.currentTimeMillis());
 
         agentDAO.insertOrUpdate(agentBean1);
@@ -546,7 +580,7 @@ public class DBDAOTest {
         assertTrue(EqualsBuilder.reflectionEquals(envBean, envBean22));
 
         // Test Watcher Column
-        assertTrue(envBean2.getWatch_recipients().equals("watcher"));
+        assertEquals(envBean.getWatch_recipients(), envBean2.getWatch_recipients());
 
         // Test update
         EnvironBean envBean3 = new EnvironBean();
@@ -598,18 +632,17 @@ public class DBDAOTest {
 
         // Added 2 hosts to group1 and group2
         Set<String> groups = new HashSet<>(Arrays.asList("group1", "group2"));
-        hostDAO
-            .insertOrUpdate("host-1", "1.1.1.1", "id-123434", HostState.ACTIVE.toString(), groups);
-        hostDAO
-            .insertOrUpdate("host-2", "1.1.1.2", "id-123435", HostState.TERMINATING.toString(),
-                groups);
-        hostDAO
-            .insertOrUpdate("host-2", "1.1.1.2", "id-123435", HostState.ACTIVE.toString(), groups);
+        hostDAO.insertOrUpdate(
+                "host-1", "1.1.1.1", "id-123434", HostState.ACTIVE.toString(), groups, "test");
+        hostDAO.insertOrUpdate(
+                "host-2", "1.1.1.2", "id-123435", HostState.TERMINATING.toString(), groups, "test");
+        hostDAO.insertOrUpdate(
+                "host-2", "1.1.1.2", "id-123435", HostState.ACTIVE.toString(), groups, "test");
         List<HostBean> hostBeans = hostDAO.getHostsByHostId("id-123435");
         assertEquals(hostBeans.get(0).getState(), HostState.TERMINATING);
 
         // Total capacity for env-1 should be 2, host-1(group1), host-2(group2) and one missing
-      // host1
+        // host1
         assertEquals(environDAO.getOverrideHosts("env-1", "s-1", "prod").size(), 0);
         assertEquals(environDAO.countTotalCapacity("env-1", "s-1", "prod"), 2);
         assertEquals(environDAO.getMissingHosts("env-1").size(), 1);
@@ -657,10 +690,14 @@ public class DBDAOTest {
     @Test
     public void testHostDAO() throws Exception {
         Set<String> groups = new HashSet<>(Arrays.asList("group1", "group2"));
-        hostDAO.insertOrUpdate("host-1", "1.1.1.1", "id-1", HostState.ACTIVE.toString(), groups);
+        hostDAO.insertOrUpdate(
+                "host-1", "1.1.1.1", "id-1", HostState.ACTIVE.toString(), groups, "test");
         groups = new HashSet<>(Arrays.asList("group1"));
-        hostDAO.insertOrUpdate("host-2", "1.1.1.2", "id-2", HostState.ACTIVE.toString(), groups);
-        hostDAO.insertOrUpdate("host-3", "1.1.1.3", "id-3", HostState.ACTIVE.toString(), groups);
+        hostDAO.insertOrUpdate(
+                "host-2", "1.1.1.2", "id-2", HostState.ACTIVE.toString(), groups, "test");
+        hostDAO.insertOrUpdate(
+                "host-3", "1.1.1.3", "id-3", HostState.ACTIVE.toString(), groups, "test");
+
         /*
         host-1 : group1, group2
         host-2 : group1
@@ -688,9 +725,10 @@ public class DBDAOTest {
         hostDAO.deleteById("id-2");
 
         // test host transactional delete
-        hostDAO.insertOrUpdate("host-1", "1.1.1.1", "id-1", HostState.ACTIVE.toString(), groups);
-        AgentBean agentBean = genDefaultAgentBean(
-            "host-1", "id-1", "e-1", "d-1", DeployStage.SERVING_BUILD);
+        hostDAO.insertOrUpdate(
+                "host-1", "1.1.1.1", "id-1", HostState.ACTIVE.toString(), groups, "test");
+        AgentBean agentBean =
+                genDefaultAgentBean("host-1", "id-1", "e-1", "d-1", DeployStage.SERVING_BUILD);
         agentDAO.insertOrUpdate(agentBean);
         AgentErrorBean agentErrorBean = new AgentErrorBean();
         agentErrorBean.setHost_name("host-1");
@@ -700,7 +738,7 @@ public class DBDAOTest {
         agentErrorDAO.insert(agentErrorBean);
 
         hostDAO.deleteAllById("id-1");
-        List<HostBean> hostBeans1 = hostDAO.getHosts("host-1");
+        List<HostBeanWithStatuses> hostBeans1 = hostDAO.getHosts("host-1");
         assertTrue(hostBeans1.isEmpty());
         List<AgentBean> agentBeans = agentDAO.getByHost("host-1");
         assertTrue(agentBeans.isEmpty());
@@ -712,17 +750,11 @@ public class DBDAOTest {
         assertEquals(environDAO.getMissingHosts("e-3").size(), 1);
 
         Set<String> groups2 = new HashSet<>(Arrays.asList("new_group"));
-        hostDAO
-            .insertOrUpdate("host-3", "3.3.3.3", "id-3", HostState.TERMINATING.toString(), groups2);
+        hostDAO.insertOrUpdate(
+                "host-3", "3.3.3.3", "id-3", HostState.TERMINATING.toString(), groups2, "test");
         assertEquals(environDAO.getMissingHosts("e-3").size(), 0);
-        List<HostBean> hostBeans2 = hostDAO.getStaleEnvHosts(System.currentTimeMillis() + 100);
-        assertEquals(hostBeans2.size(), 1);
-        HostBean hostBean2 = hostBeans2.get(0);
-        assertEquals(hostBean2.getGroup_name(), "new_group");
-        assertEquals(hostBean2.getHost_name(), "host-3");
-        assertEquals(hostBean2.getIp(), "3.3.3.3");
 
-        Collection<HostBean> hostBean3 = hostDAO.getByEnvIdAndHostName("e-3", "host-3");
+        Collection<HostBeanWithStatuses> hostBean3 = hostDAO.getByEnvIdAndHostName("e-3", "host-3");
         assertEquals(hostBean3.iterator().next().getHost_name(), "host-3");
 
         groupDAO.addGroupCapacity("e-3", "new_group");
@@ -741,21 +773,41 @@ public class DBDAOTest {
         hostBean1.setState(HostState.PROVISIONED);
         hostDAO.insert(hostBean1);
         hostDAO.insert(hostBean1);
-        List<HostBean> hostBeans3 = hostDAO.getHosts("i-9");
+        List<HostBeanWithStatuses> hostBeans3 = hostDAO.getHosts("i-9");
         assertEquals(hostBeans3.size(), 1);
         assertEquals(hostBeans3.get(0).getHost_name(), "i-9");
 
         HashSet<String> groups9 = new HashSet<>(Arrays.asList("test_dup"));
-        hostDAO
-            .insertOrUpdate("h-9", "9.9.9.9", "i-9", HostState.PENDING_TERMINATE.toString(),
-                groups9);
-        List<HostBean> hostBeans4 = hostDAO.getHosts("h-9");
+        hostDAO.insertOrUpdate(
+                "h-8", "9.9.9.9", "i-8", HostState.TERMINATING.toString(), groups9, "test");
+        hostDAO.insertOrUpdate(
+                "h-9", "9.9.9.9", "i-9", HostState.PENDING_TERMINATE.toString(), groups9, "test");
+        hostDAO.insertOrUpdate(
+                "h-10",
+                "9.9.9.9",
+                "i-10",
+                HostState.PENDING_TERMINATE_NO_REPLACE.toString(),
+                groups9,
+                "test");
+
+        List<HostBeanWithStatuses> hostBeans4 = hostDAO.getHosts("h-9");
         assertEquals(hostBeans4.size(), 1);
         assertEquals(hostBeans4.get(0).getHost_name(), "h-9");
         assertEquals(hostBeans4.get(0).getHost_id(), "i-9");
 
         List<HostBean> hostBeans5 = hostDAO.getTerminatingHosts();
-        assertEquals(hostBeans5.size(), 2);
+        assertEquals(4, hostBeans5.size());
+
+        // If state is PENDING_TERMINATE, PENDING_TERMINATE_NO_REPLACE or TERMINATING, cannot
+        // overwrite its state
+        hostDAO.insertOrUpdate(
+                "h-8", "9.9.9.8", "i-8", HostState.PROVISIONED.toString(), groups9, "test");
+        hostDAO.insertOrUpdate(
+                "h-9", "9.9.9.8", "i-9", HostState.PROVISIONED.toString(), groups9, "test");
+        hostDAO.insertOrUpdate(
+                "h-10", "9.9.9.8", "i-10", HostState.PROVISIONED.toString(), groups9, "test");
+        hostBeans5 = hostDAO.getTerminatingHosts();
+        assertEquals(4, hostBeans5.size());
 
         // Test can retire hosts
         HostBean hostBean6 = new HostBean();
@@ -778,27 +830,146 @@ public class DBDAOTest {
         hostBean7.setGroup_name("retire-group");
         hostBean7.setCreate_date(currentTime);
         hostBean7.setLast_update(currentTime);
-        hostBean7.setState(HostState.TERMINATING);
-        hostBean7.setCan_retire(1);
+        hostBean7.setState(HostState.ACTIVE);
         hostDAO.insert(hostBean7);
 
-        Collection<String>
-            retiredHostBeanIds =
-            hostDAO.getToBeRetiredHostIdsByGroup("retire-group");
-        assertEquals(retiredHostBeanIds.size(), 2);
-
-        AgentBean
-            agentBean1 =
-            genDefaultAgentBean("i-11", "i-11", "e-1", "d-1", DeployStage.RESTARTING);
+        AgentBean agentBean1 =
+                genDefaultAgentBean("i-11", "i-11", "e-1", "d-1", DeployStage.RESTARTING);
         agentBean1.setStatus(AgentStatus.AGENT_FAILED);
         agentDAO.insertOrUpdate(agentBean1);
-        Collection<String>
-            retiredAndFailedHostIds =
-            hostDAO.getToBeRetiredAndFailedHostIdsByGroup("retire-group");
-        assertEquals(retiredAndFailedHostIds.size(), 1);
 
-        Collection<String> failedHostIds = hostDAO.getFailedHostIdsByGroup("retire-group");
-        assertEquals(failedHostIds.size(), 1);
+        HostState[] nonRetirableStates = {
+            HostState.TERMINATING,
+            HostState.PENDING_TERMINATE_NO_REPLACE,
+            HostState.PENDING_TERMINATE
+        };
+
+        for (HostState state : nonRetirableStates) {
+            hostBean7.setCan_retire(1);
+            hostBean7.setState(state);
+            hostDAO.updateHostById("i-13", hostBean7);
+
+            Collection<String> retiredHostBeanIds =
+                    hostDAO.getToBeRetiredHostIdsByGroup("retire-group");
+            assertEquals(2, retiredHostBeanIds.size());
+
+            Collection<String> retiredAndFailedHostIds =
+                    hostDAO.getToBeRetiredAndFailedHostIdsByGroup("retire-group");
+            assertEquals(1, retiredAndFailedHostIds.size());
+
+            Collection<String> failedHostIds = hostDAO.getFailedHostIdsByGroup("retire-group");
+            assertEquals(1, failedHostIds.size());
+
+            hostBean7.setCan_retire(0);
+            hostDAO.updateHostById("i-13", hostBean7);
+
+            Collection<String> newHostIds = hostDAO.getNewHostIdsByGroup("retire-group");
+            assertEquals(0, newHostIds.size());
+        }
+
+        // Test support for normandie and knox statuses in hostDAO.getHosts
+        hostDAO.insertOrUpdate(
+                "host-normandie",
+                "1.1.1.1",
+                "id-normandie",
+                HostState.ACTIVE.toString(),
+                groups,
+                "test");
+        hostAgentDAO.insert(
+                HostAgentBean.builder()
+                        .host_name("host-normandie")
+                        .host_id("id-normandie")
+                        .normandie_status(NormandieStatus.OK)
+                        .knox_status(KnoxStatus.ERROR)
+                        .build());
+
+        List<HostBeanWithStatuses> hostBeansNormandie = hostDAO.getHosts("host-normandie");
+        assertEquals(1, hostBeansNormandie.size());
+        assertEquals("host-normandie", hostBeansNormandie.get(0).getHost_name());
+        assertEquals("id-normandie", hostBeansNormandie.get(0).getHost_id());
+        assertEquals(NormandieStatus.OK, hostBeansNormandie.get(0).getNormandie_status());
+        assertEquals(KnoxStatus.ERROR, hostBeansNormandie.get(0).getKnox_status());
+
+        // Test support for normandie and knox statuses in hostDAO.getByEnvIdAndHostName
+        groupDAO.addHostCapacity("e-3", "host-normandie");
+        Collection<HostBeanWithStatuses> hostBeansNormandie2 =
+                hostDAO.getByEnvIdAndHostName("e-3", "host-normandie");
+        assertEquals(1, hostBeansNormandie2.size());
+        HostBeanWithStatuses hostBeanNormandie2 = hostBeansNormandie2.iterator().next();
+        assertEquals(hostBeanNormandie2.getHost_name(), "host-normandie");
+        assertEquals(NormandieStatus.OK, hostBeanNormandie2.getNormandie_status());
+        assertEquals(KnoxStatus.ERROR, hostBeanNormandie2.getKnox_status());
+    }
+
+    @Test
+    public void returnActiveHostIdsIfThemExists() throws Exception {
+        // GIVEN
+        Set<String> groups = new HashSet<>(Arrays.asList("group1", "group2"));
+        String activeHostId1 = "id-active-1";
+        String activeHostId2 = "id-active-2";
+        String terminatedHostId = "id-terminated-1";
+
+        hostDAO.insertOrUpdate(
+                "host-active-1",
+                "1.1.1.1",
+                activeHostId1,
+                HostState.ACTIVE.toString(),
+                groups,
+                "test");
+        hostDAO.insertOrUpdate(
+                "host-active-2",
+                "1.1.1.1",
+                activeHostId2,
+                HostState.ACTIVE.toString(),
+                groups,
+                "test");
+        hostDAO.insertOrUpdate(
+                "host-terminated-1",
+                "1.1.1.1",
+                terminatedHostId,
+                HostState.TERMINATED.toString(),
+                groups,
+                "test");
+
+        // WHEN
+        List<String> actual =
+                hostDAO.getActiveHostIdsByHostIds(Arrays.asList(activeHostId1, activeHostId2));
+
+        // THEN
+        assertEquals(2, actual.size());
+        assertTrue(actual.contains(activeHostId1));
+        assertTrue(actual.contains(activeHostId2));
+    }
+
+    @Test
+    public void returnEmptyHostIdsIfThemNotExists() throws Exception {
+        // GIVEN
+        Set<String> groups = new HashSet<>(Arrays.asList("group1", "group2"));
+        String terminatedHostId = "id-terminated-2";
+        String terminatingHostId = "id-terminating-1";
+
+        hostDAO.insertOrUpdate(
+                "host-terminated-2",
+                "1.1.1.1",
+                terminatedHostId,
+                HostState.TERMINATED.toString(),
+                groups,
+                "test");
+        hostDAO.insertOrUpdate(
+                "host-terminating-1",
+                "1.1.1.1",
+                terminatingHostId,
+                HostState.TERMINATING.toString(),
+                groups,
+                "test");
+
+        // WHEN
+        List<String> actual =
+                hostDAO.getActiveHostIdsByHostIds(
+                        Arrays.asList(terminatedHostId, terminatingHostId));
+
+        // THEN
+        assertTrue(actual.isEmpty());
     }
 
     @Test
@@ -906,13 +1077,12 @@ public class DBDAOTest {
         UserRolesBean bean = new UserRolesBean();
         bean.setUser_name("test");
         bean.setResource_id("envTest");
-        bean.setResource_type(Resource.Type.ENV);
-        bean.setRole(Role.ADMIN);
+        bean.setResource_type(AuthZResource.Type.ENV);
+        bean.setRole(TeletraanPrincipalRole.ADMIN);
         userRolesDAO.insert(bean);
-        UserRolesBean
-            bean2 =
-            userRolesDAO.getByNameAndResource("test", "envTest", Resource.Type.ENV);
-        assertEquals(bean2.getRole(), Role.ADMIN);
+        UserRolesBean bean2 =
+                userRolesDAO.getByNameAndResource("test", "envTest", AuthZResource.Type.ENV);
+        assertEquals(bean2.getRole(), TeletraanPrincipalRole.ADMIN);
     }
 
     @Test
@@ -920,13 +1090,12 @@ public class DBDAOTest {
         GroupRolesBean bean = new GroupRolesBean();
         bean.setGroup_name("group");
         bean.setResource_id("123");
-        bean.setResource_type(Resource.Type.ENV);
-        bean.setRole(Role.ADMIN);
+        bean.setResource_type(AuthZResource.Type.ENV);
+        bean.setRole(TeletraanPrincipalRole.ADMIN);
         groupRolesDAO.insert(bean);
-        GroupRolesBean
-            bean2 =
-            groupRolesDAO.getByNameAndResource("group", "123", Resource.Type.ENV);
-        assertEquals(bean2.getRole(), Role.ADMIN);
+        GroupRolesBean bean2 =
+                groupRolesDAO.getByNameAndResource("group", "123", AuthZResource.Type.ENV);
+        assertEquals(bean2.getRole(), TeletraanPrincipalRole.ADMIN);
     }
 
     @Test
@@ -935,16 +1104,29 @@ public class DBDAOTest {
         bean.setScript_name("test");
         bean.setToken("token");
         bean.setResource_id("envTest");
-        bean.setResource_type(Resource.Type.ENV);
-        bean.setRole(Role.ADMIN);
+        bean.setResource_type(AuthZResource.Type.ENV);
+        bean.setRole(TeletraanPrincipalRole.ADMIN);
         bean.setExpire_date(System.currentTimeMillis());
         tokenRolesDAO.insert(bean);
-        TokenRolesBean
-            bean2 =
-            tokenRolesDAO.getByNameAndResource("test", "envTest", Resource.Type.ENV);
-        assertEquals(bean2.getRole(), Role.ADMIN);
-    }
+        TokenRolesBean bean2 =
+                tokenRolesDAO.getByNameAndResource("test", "envTest", AuthZResource.Type.ENV);
+        assertEquals(bean2.getRole(), TeletraanPrincipalRole.ADMIN);
 
+        // BUG-285640: read paths that feed HTTP responses must not load the token column.
+        assertNull(bean2.getToken());
+        List<TokenRolesBean> byResource =
+                tokenRolesDAO.getByResource("envTest", AuthZResource.Type.ENV);
+        assertEquals(1, byResource.size());
+        assertNull(byResource.get(0).getToken());
+        assertEquals("test", byResource.get(0).getScript_name());
+
+        // The authentication lookup path (used by TeletraanScriptTokenProvider) must still return
+        // the token so that bearer-credential comparison continues to work.
+        TokenRolesBean byToken = tokenRolesDAO.getByToken("token");
+        assertNotNull(byToken);
+        assertEquals("token", byToken.getToken());
+        assertEquals(TeletraanPrincipalRole.ADMIN, byToken.getRole());
+    }
 
     @Test
     public void testConfigHistoryDAO() throws Exception {
@@ -974,8 +1156,13 @@ public class DBDAOTest {
 
     @Test
     public void testTagDAO() throws Exception {
-        TagBean tag = genTagBean(TagValue.BAD_BUILD, "TestEnv", "BUILD",
-            genDefaultBuildInfoBean("b-3", "sss-1", "c-1", "r-1", System.currentTimeMillis()));
+        TagBean tag =
+                genTagBean(
+                        TagValue.BAD_BUILD,
+                        "TestEnv",
+                        "BUILD",
+                        genDefaultBuildInfoBean(
+                                "b-3", "sss-1", "c-1", "r-1", System.currentTimeMillis()));
         tagDAO.insert(tag);
         TagBean tag2 = tagDAO.getById(tag.getId());
         assertNotNull(tag2);
@@ -996,19 +1183,18 @@ public class DBDAOTest {
         targetList = tagDAO.getByTargetIdAndType(tag.getTarget_id(), TagTargetType.BUILD);
         assertEquals(0, targetList.size());
 
-        tagDAO
-            .insert(genTagBean(TagValue.BAD_BUILD, "env1", "BUILD", new HashMap<String, String>()));
-        tagDAO
-            .insert(genTagBean(TagValue.BAD_BUILD, "env1", "BUILD", new HashMap<String, String>()));
-        tagDAO
-            .insert(genTagBean(TagValue.BAD_BUILD, "env1", "BUILD", new HashMap<String, String>()));
-        tagDAO
-            .insert(genTagBean(TagValue.BAD_BUILD, "env1", "BUILD", new HashMap<String, String>()));
+        tagDAO.insert(
+                genTagBean(TagValue.BAD_BUILD, "env1", "BUILD", new HashMap<String, String>()));
+        tagDAO.insert(
+                genTagBean(TagValue.BAD_BUILD, "env1", "BUILD", new HashMap<String, String>()));
+        tagDAO.insert(
+                genTagBean(TagValue.BAD_BUILD, "env1", "BUILD", new HashMap<String, String>()));
+        tagDAO.insert(
+                genTagBean(TagValue.BAD_BUILD, "env1", "BUILD", new HashMap<String, String>()));
 
         assertEquals(4, tagDAO.getByValue(TagValue.BAD_BUILD).size());
         assertEquals(0, tagDAO.getByValue(TagValue.GOOD_BUILD).size());
     }
-
 
     @Test
     public void testScheduleDAO() throws Exception {
@@ -1042,46 +1228,32 @@ public class DBDAOTest {
         assertEquals(updatedBean.getCurrent_session(), (Integer) 1);
         assertEquals(updatedBean.getState(), ScheduleState.RUNNING);
         assertEquals(updatedBean.getHost_numbers(), "50,60,500");
-
     }
 
+    @Test
+    public void testUtilDAO() throws Exception {
+        StringBuilder lockNameBuilder = new StringBuilder();
+        for (int i = 1; i < 40; i++) {
+            lockNameBuilder.append("kn");
+            String lockName = lockNameBuilder.toString();
+            Connection conn = utilDAO.getLock(lockName);
+            assertNotNull(conn);
+            utilDAO.releaseLock(lockName, conn);
+        }
+    }
 
-    private EnvironBean genDefaultEnvBean(String envId, String envName, String envStage,
-                                          String deployId) {
-        EnvironBean envBean = new EnvironBean();
+    private EnvironBean genDefaultEnvBean(
+            String envId, String envName, String envStage, String deployId) {
+        EnvironBean envBean = EnvironBeanFixture.createRandomEnvironBean();
         envBean.setEnv_id(envId);
         envBean.setEnv_name(envName);
         envBean.setStage_name(envStage);
-        envBean.setEnv_state(EnvState.NORMAL);
-        envBean.setMax_parallel(1);
-        envBean.setPriority(DeployPriority.NORMAL);
-        envBean.setStuck_th(100);
-
-        //To keep the precision, the default success_th value should be 10000 in DB.
-        envBean.setSuccess_th(10000);
-        envBean.setDescription("foo");
         envBean.setDeploy_id(deployId);
-        envBean.setAdv_config_id("config_id_1");
-        envBean.setSc_config_id("envvar_id_1");
-        envBean.setLast_operator("bar");
-        envBean.setLast_update(System.currentTimeMillis());
-        envBean.setAccept_type(AcceptanceType.AUTO);
-        envBean.setNotify_authors(false);
-        envBean.setWatch_recipients("watcher");
-        envBean.setMax_deploy_num(5100);
-        envBean.setMax_deploy_day(366);
-        envBean.setIs_docker(false);
-        envBean.setMax_parallel_pct(0);
-        envBean.setState(EnvironState.NORMAL);
-        envBean.setMax_parallel_rp(1);
-        envBean.setOverride_policy(OverridePolicy.OVERRIDE);
-        envBean.setAllow_private_build(false);
-        envBean.setEnsure_trusted_build(false);
         return envBean;
     }
 
-    private DeployBean genDefaultDeployBean(String id, String envId, String buildId,
-                                            long startDate, DeployState state) {
+    private DeployBean genDefaultDeployBean(
+            String id, String envId, String buildId, long startDate, DeployState state) {
         DeployBean deployBean = new DeployBean();
         deployBean.setDeploy_id(id);
         deployBean.setEnv_id(envId);
@@ -1109,8 +1281,8 @@ public class DBDAOTest {
         return ratingBean;
     }
 
-    private BuildBean genDefaultBuildInfoBean(String id, String buildName,
-                                              String commitId, String repoUrl, long buildDate) {
+    private BuildBean genDefaultBuildInfoBean(
+            String id, String buildName, String commitId, String repoUrl, long buildDate) {
         BuildBean buildBean = new BuildBean();
         buildBean.setBuild_id(id);
         buildBean.setBuild_name(buildName);
@@ -1125,8 +1297,12 @@ public class DBDAOTest {
         return buildBean;
     }
 
-    private AgentBean genDefaultAgentBean(String hostName, String hostId, String envId,
-                                          String deployId, DeployStage deployStage) {
+    private AgentBean genDefaultAgentBean(
+            String hostName,
+            String hostId,
+            String envId,
+            String deployId,
+            DeployStage deployStage) {
         AgentBean agentBean = new AgentBean();
         agentBean.setHost_name(hostName);
         agentBean.setHost_id(hostId);
@@ -1155,7 +1331,7 @@ public class DBDAOTest {
     }
 
     private TagBean genTagBean(TagValue val, String target_id, String target_type, Object meta_info)
-        throws Exception {
+            throws Exception {
         TagBean bean = new TagBean();
         bean.setId(CommonUtils.getBase64UUID());
         bean.setCreated_date(System.currentTimeMillis());

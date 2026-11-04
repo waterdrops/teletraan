@@ -1,12 +1,12 @@
 /**
- * Copyright 2016 Pinterest, Inc.
+ * Copyright (c) 2016-2024 Pinterest, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *  
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *    
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,24 +20,19 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.pinterest.deployservice.bean.AlarmBean;
-import org.apache.commons.lang.StringUtils;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import org.apache.commons.lang3.StringUtils;
 
-/**
- * Serialize and deserialize List<AlarmBean> to and from a JSON string
- */
+/** Serialize and deserialize List<AlarmBean> to and from a JSON string */
 public class AlarmDataFactory implements PersistableJSONFactory<List<AlarmBean>> {
     private static final String ALARM_ARRAY = "alarmArray";
     private static final String NAME = "name";
     private static final String ALARM_URL = "alarmUrl";
     private static final String METRICS_URL = "metricsUrl";
 
-    /**
-     * Convert list of alarm configs into a JSON string.
-     */
+    /** Convert list of alarm configs into a JSON string. */
     public String toJson(List<AlarmBean> configs) {
         JsonObject json = new JsonObject();
         JsonArray arrayOfUrlJson = new JsonArray();
@@ -54,9 +49,7 @@ public class AlarmDataFactory implements PersistableJSONFactory<List<AlarmBean>>
         return json.toString();
     }
 
-    /**
-     * Take a JSON string and convert into a list of Alarm configs.
-     */
+    /** Take a JSON string and convert into a list of Alarm configs. */
     public List<AlarmBean> fromJson(String payload) {
         if (StringUtils.isEmpty(payload)) {
             return Collections.emptyList();
@@ -79,5 +72,4 @@ public class AlarmDataFactory implements PersistableJSONFactory<List<AlarmBean>>
         }
         return configs;
     }
-
 }

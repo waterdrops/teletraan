@@ -11,6 +11,7 @@
                         <textarea class="form-control" name="TELETRAAN_{{ key }}"
                         rows="1" style="resize: none;"
                         >{{ value|default_if_none:'' }}</textarea>
+                        <p class="lineTooLong" {% if value|length < 256 %}hidden{% endif %}>Value too long > 256, we suggest breaking it into multiple key-value pairs.</p>
                     </div>
                     <div class="col-xs-3">
                         <button type="button" class="delete_button btn btn-default">Delete</button>
@@ -38,6 +39,30 @@
             <span class="glyphicon glyphicon-floppy-save"></span> Save
         </button>
         {% endif %}
+    </div>
+</div>
+
+<div class="modal fade" id="saveEntryModalId" tabindex="-1" role="dialog"
+     aria-labelledby="saveEntryModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <form id="saveEntryFormId" class="form-horizontal" method="post" role="form">
+                <div class="modal-header">
+                    <button type="button" class="close" data-dismiss="modal"><span
+                            aria-hidden="true">&times;</span><span class="sr-only">Close</span>
+                    </button>
+                    <h4 class="modal-title" id="saveEnvModalLabel">Save New {{ panelTitle }}</h4>
+                </div>
+                <div class="modal-body">
+                    Are you sure you want to <strong>save new config</strong> for this cluster?<br>
+                    Please double check the new added config in yellow color before saving.
+                </div>
+                <div class="modal-footer">
+                    <button id="saveEntryBtnId" type="button" class="btn btn-primary">Save</button>
+                    <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+                </div>
+            </form>
+        </div>
     </div>
 </div>
 
@@ -70,7 +95,7 @@
 
                         <div class="col-md-10">
                             <input type="text" class="form-control" name="newEntryName"
-                                   placeholder="name..." value="">
+                                   placeholder="name..." value=""/>
                         </div>
                         {% endif %}
                     </div>
@@ -104,10 +129,30 @@
             $('#resetConfigMapBtnId').removeAttr('disabled');
         });
 
+        $('#mapConfigFormId,#newEntryFormId').on('input', 'textarea', function() {
+            const currentVal = $(this).val();
+            if (currentVal.match(/[\r\n\v]+/g)) {
+                $(this).val(currentVal.replace(/[\r\n\v]+/g, ' '));
+                globalNotificationBanner.warning =
+                    "Multi-line (\\r\\n) is not allowed in script config and thus replaced by SPACE. Also note that line wrapping is enabled.";
+            }
+
+            const lineTooLong = $(this).siblings(".lineTooLong");
+            if ($(this).val().length > 256) {
+                lineTooLong.show();
+            } else {
+                lineTooLong.hide();
+            }
+        });
+
         $('#addConfigMapBtnId').click(function () {
             $('#newEntryModalId').modal()
             $('#saveConfigMapBtnId').removeAttr('disabled');
             $('#resetConfigMapBtnId').removeAttr('disabled');
+        });
+
+        $('#saveConfigMapBtnId').click(function () {
+            $('#saveEntryModalId').modal()
         });
 
         $('#newEntryBtnId').click(function () {
@@ -119,17 +164,20 @@
             var value = $('#newEntryFormId').find('textarea[name="newEntryValue"]').val();
             $('#mapConfigFieldSetId').append(
                     '<div class="form-group">' +
-                    '<label for="properties" class="control-label col-xs-3">' + name + '</label>' +
+                    '<label for="properties" class="control-label col-xs-3" style="color:gold">' + name + '</label>' +
                     '<div class="col-xs-6"><textarea class="form-control" name="TELETRAAN_' +
-                    name + '" type="text" rows="1" style="resize: none;">' + value + '</textarea></div>' +
+                    name + '" type="text" rows="1" style="resize: none;">' + value + '</textarea>' +
+                    '<p class="lineTooLong" ' + (value.length > 256 ? '' : 'hidden') +
+                    '>Value too long > 256, we suggest breaking it into multiple key-value pairs.</p></div>' +
                     '<div class="col-xs-3 {{ flavor }}_remover">' +
                     '<button type="button" class="delete_button btn btn-default">Delete</button></div>' +
                     '</div>');
             $('#newEntryModalId').modal('hide')
         });
 
-        $('#saveConfigMapBtnId').click(function () {
-            var btn = $(this);
+        $('#saveEntryBtnId').click(function () {
+            $('#saveEntryModalId').modal('hide');
+            var btn = $('#saveConfigMapBtnId');
             $.ajax({
                 type: 'POST',
                 url: '/env/{{ env.envName }}/{{ env.stageName }}/config/map/',
@@ -147,6 +195,7 @@
                         $('#errorBannerId').empty().hide();
                     }
                     btn.button('reset');
+                    window.location.href=window.location.href;
                 },
                 error: function (data) {
                     $('#errorBannerId').append(data.responseText);
@@ -176,15 +225,18 @@
             $('#resetConfigMapBtnId').removeAttr('disabled');
         });
 
-        $('textarea').on('change click keyup keydown', function() {
-           this.style.height = "32px";
-           this.style.height = (this.scrollHeight + 2)+"px";
-        });
+        $('#mapConfigFieldSetId, #newEntryFormId').on('change click keyup keydown', 'textarea', function () {
+            var scrollLeft = window.pageXOffset ||
+                (document.documentElement || document.body.parentNode || document.body).scrollLeft;
 
-        $('#mapConfigFieldSetId').on('change click keyup keydown', 'textarea', function () {
-           this.style.height = "32px";
-           this.style.height = (this.scrollHeight + 2)+"px";
-        });
+            var scrollTop  = window.pageYOffset ||
+                (document.documentElement || document.body.parentNode || document.body).scrollTop;
+
+            this.style.height = 'auto';
+            this.style.height = this.scrollHeight + 'px';
+
+            window.scrollTo(scrollLeft, scrollTop);
+         });
 
     });
 </script>

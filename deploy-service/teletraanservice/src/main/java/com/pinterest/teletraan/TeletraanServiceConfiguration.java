@@ -1,12 +1,12 @@
 /**
- * Copyright 2016 Pinterest, Inc.
+ * Copyright (c) 2016-2024 Pinterest, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *  
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *    
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,32 +15,30 @@
  */
 package com.pinterest.teletraan;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.pinterest.teletraan.config.AnonymousAuthenticationFactory;
+import com.pinterest.teletraan.config.AppEventFactory;
 import com.pinterest.teletraan.config.AuthenticationFactory;
 import com.pinterest.teletraan.config.AuthorizationFactory;
+import com.pinterest.teletraan.config.AwsFactory;
 import com.pinterest.teletraan.config.BuildAllowlistFactory;
+import com.pinterest.teletraan.config.CIPlatformFactory;
 import com.pinterest.teletraan.config.ChatFactory;
 import com.pinterest.teletraan.config.DataSourceFactory;
 import com.pinterest.teletraan.config.DefaultChatFactory;
 import com.pinterest.teletraan.config.DefaultEmailFactory;
-import com.pinterest.teletraan.config.DefaultHostGroupFactory;
-import com.pinterest.teletraan.config.DefaultSourceControlFactory;
 import com.pinterest.teletraan.config.EmailFactory;
-import com.pinterest.teletraan.config.EmbeddedDataSourceFactory;
-import com.pinterest.teletraan.config.EventSenderFactory;
 import com.pinterest.teletraan.config.ExternalAlertsConfigFactory;
-import com.pinterest.teletraan.config.HostGroupFactory;
 import com.pinterest.teletraan.config.JenkinsFactory;
+import com.pinterest.teletraan.config.MetricsUrlAllowlistFactory;
+import com.pinterest.teletraan.config.MicrometerMetricsFactory;
 import com.pinterest.teletraan.config.OpenAuthorizationFactory;
 import com.pinterest.teletraan.config.RodimusFactory;
 import com.pinterest.teletraan.config.SourceControlFactory;
 import com.pinterest.teletraan.config.SystemFactory;
+import com.pinterest.teletraan.config.UdmDataUpdateServiceFactory;
 import com.pinterest.teletraan.config.WorkerConfig;
-
-import com.fasterxml.jackson.annotation.JsonProperty;
-
 import io.dropwizard.Configuration;
-
 import java.util.Collections;
 import java.util.List;
 import javax.validation.Valid;
@@ -58,9 +56,17 @@ public class TeletraanServiceConfiguration extends Configuration {
     @Valid
     private AuthorizationFactory authorizationFactory;
 
+    @JsonProperty("aws")
+    @Valid
+    private AwsFactory awsFactory;
+
+    @JsonProperty("defaultScmTypeName")
+    @Valid
+    private String defaultScmTypeName;
+
     @Valid
     @JsonProperty("scm")
-    private SourceControlFactory sourceControlFactory;
+    private List<SourceControlFactory> sourceControlConfigs;
 
     @Valid
     @JsonProperty("chat")
@@ -71,12 +77,8 @@ public class TeletraanServiceConfiguration extends Configuration {
     private EmailFactory emailFactory;
 
     @Valid
-    @JsonProperty("hostgroup")
-    private HostGroupFactory hostGroupFactory;
-
-    @Valid
     @JsonProperty("event")
-    private EventSenderFactory eventSenderFactory;
+    private AppEventFactory appEventFactory;
 
     @Valid
     @JsonProperty("workers")
@@ -86,18 +88,29 @@ public class TeletraanServiceConfiguration extends Configuration {
     @JsonProperty("system")
     private SystemFactory systemFactory;
 
-
     @Valid
     @JsonProperty("rodimus")
     private RodimusFactory rodimusFactory;
+
+    @Valid
+    @JsonProperty("ci")
+    private List<CIPlatformFactory> ciPlatformConfigs;
 
     @Valid
     @JsonProperty("jenkins")
     private JenkinsFactory jenkinsFactory;
 
     @Valid
+    @JsonProperty("udmDataUpdateService")
+    private UdmDataUpdateServiceFactory udmDataUpdateServiceFactory;
+
+    @Valid
     @JsonProperty("buildAllowlist")
     private BuildAllowlistFactory buildAllowlistFactory;
+
+    @Valid
+    @JsonProperty("metricsUrlAllowlist")
+    private MetricsUrlAllowlistFactory metricsUrlAllowlistFactory;
 
     @Valid
     @JsonProperty("externalAlerts")
@@ -107,10 +120,13 @@ public class TeletraanServiceConfiguration extends Configuration {
     @JsonProperty("pingrequestvalidators")
     private List<String> pingRequestValidators;
 
+    @Valid private MicrometerMetricsFactory metricsFactory = new MicrometerMetricsFactory();
+
+    @Valid
+    @JsonProperty("accountAllowList")
+    private List<String> accountAllowList;
+
     public DataSourceFactory getDataSourceFactory() {
-        if (dataSourceFactory == null) {
-            return new EmbeddedDataSourceFactory();
-        }
         return dataSourceFactory;
     }
 
@@ -129,15 +145,27 @@ public class TeletraanServiceConfiguration extends Configuration {
         this.authenticationFactory = authenticationFactory;
     }
 
-    public SourceControlFactory getSourceControlFactory() {
-        if (sourceControlFactory == null) {
-            return new DefaultSourceControlFactory();
+    public List<SourceControlFactory> getSourceControlConfigs() {
+        if (sourceControlConfigs == null) {
+            return Collections.emptyList();
         }
-        return sourceControlFactory;
+        return sourceControlConfigs;
     }
 
-    public void setSourceControlFactory(SourceControlFactory sourceControlFactory) {
-        this.sourceControlFactory = sourceControlFactory;
+    public void setSourceControlConfigs(List<SourceControlFactory> sourceControlConfigs) {
+        this.sourceControlConfigs = sourceControlConfigs;
+    }
+
+    // // CIPlatformFactory replaces JenkinsFactory and BuildkiteFactory
+    public List<CIPlatformFactory> getCIPlatformConfigs() {
+        if (ciPlatformConfigs == null) {
+            return Collections.emptyList();
+        }
+        return ciPlatformConfigs;
+    }
+
+    public void setCIPlatformConfigs(List<CIPlatformFactory> ciPlatformConfigs) {
+        this.ciPlatformConfigs = ciPlatformConfigs;
     }
 
     public AuthorizationFactory getAuthorizationFactory() {
@@ -158,6 +186,15 @@ public class TeletraanServiceConfiguration extends Configuration {
         this.buildAllowlistFactory = buildAllowlist;
     }
 
+    public MetricsUrlAllowlistFactory getMetricsUrlAllowlistFactory() {
+        return metricsUrlAllowlistFactory;
+    }
+
+    public void setMetricsUrlAllowlistFactory(
+            MetricsUrlAllowlistFactory metricsUrlAllowlistFactory) {
+        this.metricsUrlAllowlistFactory = metricsUrlAllowlistFactory;
+    }
+
     public ChatFactory getChatFactory() {
         if (chatFactory == null) {
             return new DefaultChatFactory();
@@ -168,7 +205,6 @@ public class TeletraanServiceConfiguration extends Configuration {
     public void setChatFactory(ChatFactory chatFactory) {
         this.chatFactory = chatFactory;
     }
-
 
     public EmailFactory getEmailFactory() {
         if (emailFactory == null) {
@@ -185,23 +221,12 @@ public class TeletraanServiceConfiguration extends Configuration {
         this.authorizationFactory = authorizationFactory;
     }
 
-    public HostGroupFactory getHostGroupFactory() {
-        if (hostGroupFactory == null) {
-            return new DefaultHostGroupFactory();
-        }
-        return hostGroupFactory;
+    public AppEventFactory getAppEventFactory() {
+        return appEventFactory;
     }
 
-    public void setHostGroupFactory(HostGroupFactory hostGroupFactory) {
-        this.hostGroupFactory = hostGroupFactory;
-    }
-
-    public EventSenderFactory getEventSenderFactory() {
-        return eventSenderFactory;
-    }
-
-    public void setEventSenderFactory(EventSenderFactory eventSenderFactory) {
-        this.eventSenderFactory = eventSenderFactory;
+    public void setAppEventFactory(AppEventFactory appEventFactory) {
+        this.appEventFactory = appEventFactory;
     }
 
     public SystemFactory getSystemFactory() {
@@ -223,12 +248,10 @@ public class TeletraanServiceConfiguration extends Configuration {
         this.rodimusFactory = rodimusFactory;
     }
 
+    // keep these getter and setter for Jenkins for backward compatibility purpose
+    // the new way is to use CIPlatformFactory
     public JenkinsFactory getJenkinsFactory() {
         return jenkinsFactory;
-    }
-
-    public void setJenkinsFactory(JenkinsFactory jenkinsFactory) {
-        this.jenkinsFactory = jenkinsFactory;
     }
 
     public List<WorkerConfig> getWorkerConfigs() {
@@ -238,27 +261,62 @@ public class TeletraanServiceConfiguration extends Configuration {
         return workerConfigs;
     }
 
+    public UdmDataUpdateServiceFactory getUdmDataUpdateServiceFactory() {
+        return udmDataUpdateServiceFactory;
+    }
+
+    public void setUdmDataUpdateServiceFactry(
+            UdmDataUpdateServiceFactory udmDataUpdateServiceFactory) {
+        this.udmDataUpdateServiceFactory = udmDataUpdateServiceFactory;
+    }
+
     public void setWorkerConfigs(List<WorkerConfig> workerConfigs) {
         this.workerConfigs = workerConfigs;
     }
-
 
     public ExternalAlertsConfigFactory getExternalAlertsConfigs() {
         return externalAlertsConfigs;
     }
 
-    public void setExternalAlertsConfigs(
-        ExternalAlertsConfigFactory externalAlertsConfigs) {
+    public void setExternalAlertsConfigs(ExternalAlertsConfigFactory externalAlertsConfigs) {
         this.externalAlertsConfigs = externalAlertsConfigs;
     }
-
 
     public List<String> getPingRequestValidators() {
         return pingRequestValidators;
     }
 
-    public void setPingRequestValidators(
-        List<String> pingRequestValidators) {
+    public void setPingRequestValidators(List<String> pingRequestValidators) {
         this.pingRequestValidators = pingRequestValidators;
+    }
+
+    public String getDefaultScmTypeName() {
+        return defaultScmTypeName;
+    }
+
+    public void setDefaultScmTypeName(String defaultScmTypeName) {
+        this.defaultScmTypeName = defaultScmTypeName;
+    }
+
+    public AwsFactory getAwsFactory() {
+        return awsFactory;
+    }
+
+    public void setAwsFactory(AwsFactory awsFactory) {
+        this.awsFactory = awsFactory;
+    }
+
+    @JsonProperty("metrics")
+    public MicrometerMetricsFactory getMetricsFactory() {
+        return metricsFactory;
+    }
+
+    @JsonProperty("metrics")
+    public void setMetricsFactory(MicrometerMetricsFactory metrics) {
+        this.metricsFactory = metrics;
+    }
+
+    public List<String> getAccountAllowList() {
+        return accountAllowList;
     }
 }

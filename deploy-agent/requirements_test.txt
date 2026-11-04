@@ -1,0 +1,10 @@
+-r requirements.txt
+
+# tests
+tox==1.6.1
+pytest-cov
+pytest==6.2.2; python_version < '3.12'
+pytest==8.2.2; python_version >= '3.12'
+mock==1.0.1
+flake8==2.5.4
+pep8

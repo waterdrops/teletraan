@@ -1,6 +1,5 @@
 # ignore install specific teletraan dir
 deploy-board/teletraan/
-deploy-service/teletraanservice/teletraan/
 
 # IntelliJ files
 .idea/
@@ -11,6 +10,13 @@ deploy-service/teletraanservice/teletraan/
 
 # VSCode
 .vscode/
+deploy-service/common/.settings/
+deploy-service/.settings/
+deploy-service/common/.*
+deploy-service/teletraanservice/.settings/
+deploy-service/teletraanservice/.*
+docs/docs_generator/.settings/
+
 
 # C extensions
 *.so
@@ -28,6 +34,8 @@ loadtests/local
 target/
 dist/
 docs/_build/
+docs/docs_generator/.gradle
+.settings/
 
 # Vagrant
 .bundle
@@ -70,3 +78,8 @@ MANIFEST
 
 # Virtual Environments
 .venv
+docs/docs_generator/bin/
+
+# Bazel
+bazel-*
+MODULE.bazel*

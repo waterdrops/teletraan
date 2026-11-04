@@ -1,4 +1,5 @@
 {% load utils %}
+{% load static %}
 <div class="modal fade" id="confirmDeployModalId" tabindex="-1" role="dialog"
      aria-labelledby="confirmDeployModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg">
@@ -21,6 +22,10 @@
                         </div>
                         <div id="privateBuildDeployMessageId" class="alert alert-warning" role="alert" hidden=true>
                             <strong>Notice: </strong> This build is private and should only be deployed in testing environments and not production environments
+                        </div>
+                        <div id="defaultStageTypeMessageId" class="alert alert-warning" role="alert" stagetype="{{env.stageType}}" syspriority="{{env.systemPriority}}" hidden=true>
+                            <strong>Notice: </strong> This stage has a value of DEFAULT for the Stage Type. Please update the Stage Type to a value other than DEFAULT. See more details at
+                            <a href="{{stage_type_info_link}}">pinch/teletraan-stagetypes</a>
                         </div>
                         <div class="form-group">
                             <label for="description"
@@ -62,6 +67,19 @@
                         <input id="currentBuildId" type="hidden" class="form-control"
                                name="current_build_id" value="{{ current_build.id }}" readonly>
                     </div>
+
+                    {% if pindeploy_config %}
+                    {% if pindeploy_config.isPindeploy %}
+                    <div class="alert alert-warning" role="alert">
+                        <strong>Warning!</strong> This stage is managed by Pindeploy. Deployments should be performed using
+                        this <a href="{{ pindeploy_config.pipeline }}" target="_blank">pipeline</a>.
+                        Creating a deployment from other sources (such as Teletraan) will disable resource management in the PinDeploy pipeline.
+                        This means PinDeploy will stop automatically deploying new builds to the stage/resource in this pipeline.
+                        Only proceed this way in case of emergency, and remember to re-enable resource management in PinDeploy once the emergency is resolved.
+                    </div>
+                    {% endif %}
+                    {% endif %}
+
                     <div class="modal-footer">
                         <button type="submit" class="btn btn-primary">Create</button>
                         <span class="hidden">Build id is EMPTY! you can not deploy this build.</span>
@@ -71,8 +89,13 @@
         </div>
     </div>
 </div>
+
+<script src="{% static "js/data-validation-helpers.js" %}"></script>
+
 <script>
-    $('#deployConfirmFormlId').submit(function () {
+    var stageType = $('#defaultStageTypeMessageId').attr('stagetype');
+    var systemPriority = $('#defaultStageTypeMessageId').attr('syspriority');
+    $('#deployConfirmFormlId').submit(function (e) {
         $(this).find('button[type=submit]').prop('disabled', 'disabled');
         $(this).find('button[type=submit]').text('Creating...');
     });
@@ -94,6 +117,12 @@
         } else {
             $('#privateBuildDeployMessageId').hide();
         }
+        if (stageType == "DEFAULT" && systemPriority == 'None') {
+            validateInput(stageType, validStageType, $.noop, function () {
+                $('#defaultStageTypeMessageId').show();
+            });
+        } else {
+            $('#defaultStageTypeMessageId').hide();
+        }
     });
-
 </script>

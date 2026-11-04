@@ -9,6 +9,14 @@
 {% endblock %}
 {% load static %}
 {% block side-panel-actions %}
+<style>
+    .chosen-container-single .chosen-single div b {
+        background: url("chosen-sprite.png") no-repeat 7px 7px;
+    }
+    .chosen-container-single .chosen-single {
+        padding: 0 0 0 16px;
+    }
+</style>
 <script type="text/javascript" src="{% static "js/components/sharedcomponents.js"%}?changedate=2016.12.19.150000"></script>
 <div class="panel panel-default" id="side-panel">
     <div class="panel-heading clearfix">
@@ -25,9 +33,9 @@
 {% block new-pred-deploys-panel %}
 {% endblock %}
 {% block main%}
-{% include "environs/env_tabs.tmpl" with envTabKind="config/capacity" %}
-<script type="text/javascript" src="{% static "js/components/capacitycomponents.js"%}?changedate=2017.07.05.180000"></script>
-<script type="text/javascript" src="{% static "js/components/clusterconfigcomponents.js"%}?changedate=2018.05.17.153000"></script>
+<script type="text/javascript" src="{% static "js/components/capacitycomponents.js"%}?changedate=2023.01.30"></script>
+<script type="text/javascript" src="{% static "js/components/clusterconfigcomponents.js"%}?changedate=2023.08.22"></script>
+<script type="text/javascript" src="{% static "js/base-image-utils.js"%}?changedate=2023.01.30"></script>
 
 <div id="mainPanel" class="panel panel-default">
 
@@ -37,23 +45,36 @@
             <form id="clusterConfigFormId" class="form-horizontal" role="form">
                 <fieldset id="clusterConfigFieldSetId">
                     <cloudprovider-select v-bind:cloudproviders="providers" v-bind:value="currentProvider"></cloudprovider-select>
-                    <cell-select v-bind:cells="cells" v-on:cellchange="cellChange"  v-bind:value="cellValue"></cell-select>
+                    <accounts-select v-bind:accounts="accounts" v-on:accountchange="accountChange" v-bind:value="currentAccountId"></accounts-select>
+                    <cell-select v-bind:cells="cells" v-on:cellchange="cellChange"  v-bind:value="currentCell"></cell-select>
+                    {% if not env.useEntitlements %}
                     <label-input label="Capacity" placeholder="# of instances" v-model="instanceCount"></label-input>
-                    <baseimage-select v-bind:imagenames="imagenames" v-bind:baseimages="baseimages" v-bind:imagenamevalue="imageNameValue" v-bind:baseImageValue="baseImageValue"
-                        v-on:baseimagechange="baseImageChange" v-on:imagenamechange="imageNameChange" inadvanced="true" v-on:helpclick="baseImageHelpClick">
+                    {% endif %}
+                    <arch-select v-bind:arches="arches" v-on:archchange="archChange"  v-bind:value="archValue"></arch-select>
+                    <baseimage-select v-model="pinImage" :image-names="imageNames" :base-images="baseImages" v-bind:account-owner-id="currentAccountOwnerId"
+                        :selected-image-name="imageNameValue" :selected-base-image="baseImageValue" :pin-image-enabled="pinImageEnabled"
+                        @base-image-change="baseImageChange" @image-name-change="imageNameChange" @help-clicked="baseImageHelpClick" >
                     </baseimage-select>
                     <base-image-help v-show="showBaseImageHelp" v-bind:data="baseImageHelpData"></base-image-help>
-                    <label-select label="Host Type" title="Compute Capability of the host" v-model="selectedHostTypeValue" v-bind:selectoptions="hostTypeOptions"
-                        v-on:input="updateImageNameForEbsHost" showhelp="true" v-on:helpclick="hostTypeHelpClick"></label-select>
+                    <hosttype-select label="Host Type" title="Compute Capability of the host" v-model="selectedHostTypeValue" v-bind:selectoptions="hostTypeOptions" selectsearch="true"
+                    showhelp="true" v-on:helpclick="hostTypeHelpClick" v-bind:disablebackupinstancetypes="disableBackupInstanceTypes" v-bind:enablemultiplehosttypes="enableMultipleHostTypes" v-on:enablemultiplehosttypesclick="selecttypes"></hosttype-select>
                     <hostype-help v-show="showHostTypeHelp" v-bind:data="hostTypeHelpData"></hostype-help>
+                    <backup-hosttypes v-bind:backuphosttypes="backupHosttypes"></backup-hosttypes>
+                    <bandwidth-weight-select v-bind:bandwidthweights="bandwidthweights" v-bind:canchangebandwidth="canChangeBandwidth" v-on:bandwidthchange="bandwidthChange" v-bind:value="currentBandwidthWeight"></bandwidth-weight-select>
                     <label-select label="Security Zone" title="Security zone to control inbound/outboud traffic" showhelp="true" v-model="selectedSecurityZoneValue"
                         v-bind:selectoptions="securityZones" v-on:helpclick="securityZoneHelpClick"></label-select>
                     <securityzone-help v-show="showSecurityZoneHelp" v-bind:data="securityZoneHelpData"></securityzone-help>
                     <placements-select label="Placements" title="Placements" v-bind:selectoptions="placements" v-bind:assignpublicip="assignPublicIP"
                         showhelp="true" v-on:helpclick="placementsHelpClick" v-on:assignpublicipclick="selectpublicip"></placements-select>
                     <placements-help v-show="showPlacementsHelp" v-bind:data="placementsHelpData"></placements-help>
+                    <label-input label="Replacement Timeout" placeholder="45" v-model="replacementTimeout" title="Time out for cluster replacement in minutes"></label-input>
+                    <stateful-select :statefuloptions="statefulStatusOptions" :value="selectedStatefulStatus" @help-clicked="statefulHelpClick" @stateful-change="updateStatefulStatus"></stateful-select>
+                    <stateful-help v-show="showStatefulHelp"></stateful-help>
                     <div>
-                        <div class="form-group"></div>
+                        <div class="form-group">
+                          <ebs-check-checkbox v-bind:use-ebs-check="useEbsCheck" v-on:on-use-ebs-check-click="onUseEbsCheckClick" v-bind:show-use-ebs-check-help="showUseEbsCheckHelp" v-on:help-clicked="onUseEbsCheckHelpClick"></ebs-check-checkbox>
+                          <ena-express-checkbox v-bind:use-ena-express="useEnaExpress" v-on:on-use-ena-express-click="onUseEnaExpressClick" v-bind:show-use-ena-express-help="showUseEnaExpressHelp" v-on:help-clicked="onUseEnaExpressHelpClick"></ena-express-checkbox>
+                        </div>
                         <div class="form-group">
                             <label class="deployToolTip control-label col-xs-2" data-toggle="tooltip" title="Customize user data">User data configs:</label>
                             {% if is_pinterest %}
@@ -64,7 +85,15 @@
                                 <aws-config-modal id="newConfigModalId" v-bind:options="configOptions" v-on:click="addConfig"></aws-config-modal>
                             </div>
                         </div>
-                        <aws-user-data v-bind:alluserdata="allUserData" v-on:deleteconfig="deleteConfig" v-on:change="configChange" inadvanced="inAdvanced"></aws-user-data>
+                        <deployservice-warning-banner :deployservicewikiurl="deployServiceWikiUrl" :alluserdata="allUserData"></deployservice-warning-banner>
+                        <aws-user-data
+                            v-bind:alluserdata="allUserData"
+                            v-on:deleteconfig="deleteConfig"
+                            v-on:change="configChange"
+                            inadvanced="inAdvanced"
+                            v-bind:hierapaths="hieraPaths"
+                            v-bind:puppetrepository="puppetRepository"
+                        />
                     </div>
                 </fieldset>
             </form>
@@ -88,20 +117,28 @@ var capacityView = new Vue({
  }
 )
 
-var info = {{capacity_creation_info|safe}}
+var info = {{capacity_creation_info|safe}};
 var environment = info.environment;
-var accepted = info.baseImages.filter(function (e) {
-        return e.acceptance == 'ACCEPTED';
-    });
-var sorted = accepted.sort(function(item1,item2){
-        return item2.publish_date - item1.publish_date;
-});
 var placements = getDefaultPlacement(info);
+var hostTypes = getDefaultHostType(info.hostTypes, info.defaultHostType, info.defaultARMHostType);
+var statefulOptions = info.stateful_options;
+const goldenImage = info.baseImages.find(goldenImageFinder);
+const baseImagesSorted = info.baseImages.sort(baseImageSorter);
+const defaultImageId = goldenImage ? goldenImage.id : getDefaultBaseImageId(baseImagesSorted);
+
+const hieraPaths = `{{ puppet_hiera_paths }}`;
+const puppetRepository = `{{ puppet_repository }}`;
+const deployServiceWikiUrl = `{{ conflicting_deploy_service_wiki_url }}`;
+const disableBackupInstanceTypes = `{{ disable_backup_instance_types}}`;
+
 var capacitySetting = new Vue({
     el: "#mainPanel",
     data: {
         allUserData: Object.keys(info.defaultCMPConfigs).map(
             function (key) {
+                if (key == 'access_role') {
+                    info.defaultCMPConfigs[key] = localStorage.getItem("accessRole") ? localStorage.getItem("accessRole") : info.defaultCMPConfigs[key];
+                }
                 return {
                     name: key,
                     value: info.defaultCMPConfigs[key]
@@ -109,16 +146,11 @@ var capacitySetting = new Vue({
             }).filter(function(item){return item.name!='cmp_group'}),
         assignPublicIP: false,
         baseImageHelpData: [],
-        baseimages: info.baseImages.map(
-            function (o) {
-                var acceptance = o.acceptance ? ' [' + o.acceptance + ']' : '';
-                return {
-                    value: o.id,
-                    text: o.provider_name + acceptance,
-                    isSelected: o.id === sorted[0].id
-                }
-            }),
-        baseImageValue: sorted[0].id,
+        baseImages: mapBaseImagesToOptions(baseImagesSorted),
+        baseImageValue: defaultImageId,
+        // Default to Auto Update if there is a golden image.
+        pinImage: getPinImageValue(goldenImage, true),
+        pinImageEnabled: isPinImageEnabled(goldenImage),
         configOptions: Object.keys(info.configList).map(
             function (key) {
                 return {
@@ -130,50 +162,59 @@ var capacitySetting = new Vue({
         confirmDialogTitle: "Confirm New Capacity Creation",
         confirmDialogId: "createHostGroup",
         currentProvider: info.defaultProvider,
-        currentCell: info.defaultCell,
+        currentAccountId: info.defaultAccountId,
+        currentAccountOwnerId: getAccountOwnerId(info.defaultAccountId),
+        currentCell: getDefaultCell(info.defaultAccountId),
+        currentArch: info.defaultArch,
+        currentBandwidthWeight: "default",
+        useEbsCheck: false,
+        useEnaExpress: false,
+        showUseEbsCheckHelp: false,
+        showUseEnaExpressHelp: false,
         hostTypeHelpData:[],
-        hostTypeOptions: info.hostTypes.map(
-            function (item, idx) {
-                return {
-                    value: item.abstract_name,
-                    text: item.abstract_name + " (" + item.core + " cores, " + item.mem + " GB, " + item.storage + ", " + item.provider + ": " + item.provider_name + ")",
-                    isSelected: item.abstract_name === info.defaultHostType
-                }
-            }),
-        cellValue: info.defaultCell,
+        hostTypeOptions: hostTypes.getOptions(),
+        hostTypes: info.hostTypes,
+        archValue: info.defaultArch,
         imageNameValue: info.defaultBaseImage,
-        imagenames: info.baseImageNames.map(
+        imageNames: mapImageNameToOptions(info.baseImageNames),
+        {% if env.useEntitlements %}
+        instanceCount:"0",
+        {% else %}
+        instanceCount:"",
+        {% endif %}
+        placements: placements.getFullList(false, null),
+        placementsHelpData: [],
+        accounts: info.accounts != null ? info.accounts.map(
             function (o) {
                 return {
-                    value: o,
-                    text: o,
-                    isSelected: o === info.defaultBaseImage
+                    value: o.id,
+                    text: o.ownerId + " / " + o.name + " / " + o.description,
+                    isSelected: o.id === info.defaultAccountId,
                 }
-            }),
-        instanceCount: "",
-        placements: placements.allPrivate.map(
-            function (item) {
-                return {
-                    value: item.id,
-                    text: item.provider_name,
-                    isSelected: placements.inDefault(item)
-                }
-            }),
-        placementsHelpData: [],
+            }) : null,
         providers: info.providerList.map(
             function (o) {
                 return {
                     value: o, text: o
                 }
             }),
-        cells: info.cells.map(
+        cells: getUiCells(info.defaultAccountId),
+        arches: info.arches.map(
             function (item) {
                 return {
                     value: item.name,
                     text: item.name,
-                    isSelected: item.name == info.defaultCell
+                    isSelected: item.name == info.defaultArch
                 }
             }),
+        bandwidthweights: info.bandwidthWeights.map(function(item) {
+                return {
+                    value: item.name,
+                    text: item.name,
+                    isSelected: item.name === "default"
+                }
+            }),
+        replacementTimeout: 45,
         securityZoneHelpData: [],
         securityZones: info.securityZones.map(
             function (item) {
@@ -183,13 +224,30 @@ var capacitySetting = new Vue({
                     isSelected: item.abstract_name === info.defaultSeurityZone
                 }
             }),
-        selectedHostTypeValue: info.defaultHostType,
+        // TODO: The default host type comes from settings and should probably not be an abstract_name since they are not guaranteed to be unique.
+        selectedHostTypeValue: hostTypes.getSelectedId(),
         selectedSecurityZoneValue: info.defaultSeurityZone,
         selectedPlacements: [],
         showBaseImageHelp: false,
         showHostTypeHelp: false,
         showSecurityZoneHelp: false,
         showPlacementsHelp: false,
+        accessRoleHelpText: "Please enter a valid access role",
+        selectedStatefulStatus: capacityCreationInfo.stateful_status,
+        statefulStatusOptions: statefulOptions.map(function(o) {
+            return {
+                value: o,
+                text: o
+            }
+        }),
+        showStatefulHelp: false,
+        hieraPaths,
+        puppetRepository,
+        deployServiceWikiUrl,
+        disableBackupInstanceTypes,
+        enableMultipleHostTypes: false,
+        backupHosttypes: "None",
+        canChangeBandwidth: checkHostType(info.hostTypes, hostTypes.getSelectedId()),
     },
     methods: {
         addConfig: function (config) {
@@ -219,7 +277,7 @@ var capacitySetting = new Vue({
                             })
                     capacitySetting.baseImageHelpData = data
                     capacitySetting.showBaseImageHelp = true
-                })
+                }, {cell: capacitySetting.currentCell})
             }
         },
         configChange: function(input){
@@ -235,136 +293,229 @@ var capacitySetting = new Vue({
         deleteConfig: function (name) {
             this.allUserData = this.allUserData.filter(function (config) { return config.name != name })
         },
-        getHelpInfo: function(path, onSuccess){
-             $.ajax({
-                        type: 'GET',
-                        url: location.protocol + '//' + location.host + '/clouds/'+path+'/',
-                        dataType: "json",
-                        beforeSend: function(xhr, settings) {
-                            var csrftoken = getCookie('csrftoken')
-                            xhr.setRequestHeader("X-CSRFToken", csrftoken);
+        getHelpInfo: function(path, onSuccess, params){
+            const searchParams = new URLSearchParams(params);
+            const seachParamStr = params != null ? `?${searchParams}` : '';
+            $.ajax({
+                type: 'GET',
+                url: `${location.protocol}//${location.host}/clouds/${path}/${seachParamStr}`,
+                dataType: "json",
+                beforeSend: function(xhr, settings) {
+                    var csrftoken = getCookie('csrftoken')
+                    xhr.setRequestHeader("X-CSRFToken", csrftoken);
 
-                        },
-                        success: function(data){
-                            onSuccess(data)
-                        },
-                        error: function(data) {
-                            globalNotificationBanner.error = data
-                        }
+                },
+                success: function(data){
+                    onSuccess(data)
+                },
+                error: function(data) {
+                    globalNotificationBanner.error = data.responseJSON.error;
+                }
             });
         },
         hostTypeHelpClick: function(){
-                if (this.showHostTypeHelp){
-                    this.showHostTypeHelp = false;
-                }
-                else{
-                    this.getHelpInfo('get_host_type_info', function(data){
-                            capacitySetting.hostTypeHelpData = data
-                            capacitySetting.showHostTypeHelp = true
-                    })
-                }
+            if (this.showHostTypeHelp){
+                this.showHostTypeHelp = false;
+            }
+            else{
+                this.getHelpInfo('get_host_types/' + capacitySetting.currentArch, function(data){
+                        capacitySetting.hostTypeHelpData = data
+                        capacitySetting.showHostTypeHelp = true
+                    }, {cell: capacitySetting.currentCell})
+            }
+        },
+        accountChange: function (value) {
+            this.currentAccountId = value;
+            this.currentAccountOwnerId = getAccountOwnerId(value);
+            this.cells = getUiCells(value);
+            this.cellChange(getDefaultCell(value));
         },
         cellChange: function(value) {
-            capacitySetting.cellValue = value;
             capacitySetting.currentCell = value;
             // grab all the image names for this cell
             var scope = this;
             var provider = capacitySetting.currentProvider;
+            var arch = capacitySetting.currentArch;
             var cell = value;
             $.ajax({
                 type: 'GET',
-                url: location.protocol + '//' + location.host + '/clouds/image_names/' + provider + '/' + cell,
+                url: location.protocol + '//' + location.host + '/clouds/image_names/' + provider + '/' + cell + '/' + arch,
                 dataType: "json",
                 beforeSend: function (xhr) {
                     var csrftoken = getCookie('csrftoken');
                     xhr.setRequestHeader("X-CSRFToken", csrftoken);
                 },
                 success: function (data) {
-                    capacitySetting.imagenames = data.map(
-                            function (o) {
-                                return {
-                                    value: o,
-                                    text: o, isSelected: o === data[0]
-                                }
-                            });
-                    capacitySetting.imageNameValue = data[0];
-                    scope.imageNameChange(data[0]);
+                    capacitySetting.imageNames = data ? mapImageNameToOptions(data) : [];
+                    scope.imageNameChange(data && data.length > 0 ? data[0] : null);
                 },
                 error: function (data) {
-                    globalNotificationBanner.error = data
+                    globalNotificationBanner.error = data.responseJSON.error;
                 }
             });
 
+
+            const securityZonesUrl =
+                `${location.protocol}//${location.host}/clouds/securityzones/${provider}/${cell}` +
+                `?accountId=${this.currentAccountId}`
             // grab all security zone for this cell
             $.ajax({
                 type: 'GET',
-                url: location.protocol + '//' + location.host + '/clouds/securityzones/' + provider + '/' + cell,
+                url: securityZonesUrl,
                 dataType: "json",
                 beforeSend: function (xhr) {
                     var csrftoken = getCookie('csrftoken');
                     xhr.setRequestHeader("X-CSRFToken", csrftoken);
                 },
                 success: function (data) {
-                    capacitySetting.securityZones = data.map(
+                    capacitySetting.securityZones = data ? data.map(
                         function (item) {
                             return {
                                 value: item.abstract_name,
                                 text: item.abstract_name,
                                 isSelected: item.id === data[0].id
                             }
-                        });
-                    capacitySetting.selectedSecurityZoneValue = data[0].abstract_name;
+                        }) : [];
+                    capacitySetting.selectedSecurityZoneValue = data && data.length > 0 ? data[0].abstract_name : null;
                 },
                 error: function (data) {
-                    globalNotificationBanner.error = data
+                    globalNotificationBanner.error = data.responseJSON.error;
                 }
             });
+
+            const placementsUrl =
+                `${location.protocol}//${location.host}/clouds/placements/${provider}/${cell}` +
+                `?accountId=${this.currentAccountId}`
             // grab all placement for this cell
             $.ajax({
                 type: 'GET',
-                url: location.protocol + '//' + location.host + '/clouds/placements/' + provider + '/' + cell,
+                url: placementsUrl,
                 dataType: "json",
                 beforeSend: function (xhr) {
                     var csrftoken = getCookie('csrftoken');
                     xhr.setRequestHeader("X-CSRFToken", csrftoken);
                 },
                 success: function (data) {
-                    var placements = getDefaultPlacement({'placements': data});
+                    var placements = data ? getDefaultPlacement({'placements': data}) : null;
 
-                    capacitySetting.placements =  placements.allPrivate.map(
-                        function (item, index) {
-                            return {
-                                value: item.id,
-                                text: item.provider_name,
-                                isSelected: index < 3 //Select Top 3 by default
-                            }
-                        });
+                    capacitySetting.placements = placements ? placements.getFullList(false, null) : null;
                 },
                 error: function (data) {
-                    globalNotificationBanner.error = data
+                    globalNotificationBanner.error = data.responseJSON.error;
                 }
             });
         },
+        archChange: function(value) {
+            capacitySetting.archValue = value;
+            capacitySetting.currentArch = value;
+            // grab all the image names
+            var scope = this;
+            var provider = capacitySetting.currentProvider;
+            var cell = capacitySetting.currentCell;
+            var arch = value;
+            $.ajax({
+                type: 'GET',
+                url: location.protocol + '//' + location.host + '/clouds/image_names/' + provider + '/' + cell + '/' + arch,
+                dataType: "json",
+                beforeSend: function (xhr) {
+                    var csrftoken = getCookie('csrftoken');
+                    xhr.setRequestHeader("X-CSRFToken", csrftoken);
+                },
+                success: function (data) {
+                    let imageName = data[0];
+                    capacitySetting.imageNames = mapImageNameToOptions(data);
+                    info.baseImageNames = data;
+                    scope.imageNameChange(imageName);
+                },
+                error: function (data) {
+                    globalNotificationBanner.error = data.responseJSON.error;
+                }
+            });
+            // grab all the host types
+            $.ajax({
+                type: 'GET',
+                url: location.protocol + '//' + location.host + '/clouds/get_host_types/' + arch,
+                dataType: "json",
+                beforeSend: function (xhr) {
+                    var csrftoken = getCookie('csrftoken');
+                    xhr.setRequestHeader("X-CSRFToken", csrftoken);
+                },
+                success: function (data) {
+                    hostTypes = getDefaultHostType(data, info.defaultHostType, info.defaultARMHostType);
+                    capacitySetting.hostTypeOptions = hostTypes.getOptions();
+                    capacitySetting.selectedHostTypeValue = hostTypes.getSelectedId();
+                    capacityCreationInfo.hostTypes = data;
+                    capacitySetting.hostTypes = data;
+                    capacitySetting.enableMultipleHostTypes = false;
+                    capacitySetting.backupHosttypes = "None";
+                    capacitySetting.canChangeBandwidth = checkHostType(data, capacitySetting.selectedHostTypeValue);
+                    capacitySetting.currentBandwidthWeight = "default";
+                    capacitySetting.bandwidthweights = info.bandwidthWeights.map(function(item) {
+                        return {
+                            value: item.name,
+                            text: item.name,
+                            isSelected: item.name === "default"
+                        }
+                    });
+                    //Schedule this to nextTick that calls after next DOM refresh
+                    //as JQuery chosen call must happen after DOM updates finished
+                    Vue.nextTick(function(){
+                        $(".single-select-search").trigger("chosen:updated")
+                    })
+                },
+                error: function (data) {
+                    globalNotificationBanner.error = data.responseJSON.error;
+                }
+            });
+        },
+        bandwidthChange: function(value) {
+            this.currentBandwidthWeight = value;
+            capacitySetting.currentBandwidthWeight = value;
+        },
+        onUseEbsCheckClick: function(useEbsCheck){
+            this.useEbsCheck = useEbsCheck;
+        },
+        onUseEnaExpressClick: function(useEnaExpress){
+            this.useEnaExpress = useEnaExpress;
+        },
+        onUseEbsCheckHelpClick: function(value) {
+            this.showUseEbsCheckHelp = !this.showUseEbsCheckHelp
+        },
+        onUseEnaExpressHelpClick: function(value) {
+            this.showUseEnaExpressHelp = !this.showUseEnaExpressHelp
+        },
         imageNameChange: function (value) {
             var cell = capacitySetting.currentCell;
+            var arch = capacitySetting.currentArch;
             capacitySetting.imageNameValue = value;
+            if (!value) {
+                capacitySetting.baseImages = [];
+                capacitySetting.baseImageValue = null;
+                capacitySetting.pinImage = null;
+                capacitySetting.pinImageEnabled = false;
+                return;
+            }
             //Grab all images for this image name
             $.ajax({
                 type: 'GET',
-                url: location.protocol + '//' + location.host + '/clouds/get_base_images/' + value + '?cell=' + cell,
+                url: location.protocol + '//' + location.host + '/clouds/get_base_images/' + value + '?cell=' + cell + '&arch=' + arch,
                 dataType: "json",
                 beforeSend: function (xhr, settings) {
                     var csrftoken = getCookie('csrftoken')
                     xhr.setRequestHeader("X-CSRFToken", csrftoken);
-
                 },
-                success: function (data) {
-                    sorted = data.sort(function (item1, item2) { return item2.publish_date - item1.publish_date; })
-                    capacitySetting.baseimages = sorted.map(function (o) { return { value: o.id, text: o.provider_name } })
-                    capacitySetting.baseImageValue = sorted[0].id
+                success: function (baseImages) {
+                    const baseImageSorted = baseImages.sort(baseImageSorter);
+                    const goldenImage = baseImages.find(goldenImageFinder);
+                    const defaultImageId = goldenImage ? goldenImage.id : getDefaultBaseImageId(baseImageSorted);
+                    capacitySetting.baseImages = mapBaseImagesToOptions(baseImageSorted);
+                    capacitySetting.baseImageValue = defaultImageId;
+                    // Default auto update if there is a golden image
+                    capacitySetting.pinImage = getPinImageValue(goldenImage, true);
+                    capacitySetting.pinImageEnabled = isPinImageEnabled(goldenImage);
                 },
                 error: function (data) {
-                    globalNotificationBanner.error = data
+                    globalNotificationBanner.error = data.responseJSON.error;
                 }
             });
         },
@@ -372,38 +523,11 @@ var capacitySetting = new Vue({
             var cell = capacitySetting.currentCell;
             var scope = this;
             var provider = capacitySetting.currentProvider;
-            value = 'cmp_base-ebs-18.04';
-            if (this.selectedHostTypeValue.startsWith('EbsCompute')) {
-                capacitySetting.imageNameValue = value;
-                capacitySetting.imagenames = info.baseImageNames.map(
-                    function (o) {
-                        return {
-                            value: o,
-                            text: o,
-                            isSelected: o === value
-                        }
-                    }),
-                    scope.imageNameChange(value);
-
-                //Grab all images for this image name
-                $.ajax({
-                    type: 'GET',
-                    url: location.protocol + '//' + location.host + '/clouds/get_base_images/' + value + '?cell=' + cell,
-                    dataType: "json",
-                    beforeSend: function (xhr, settings) {
-                        var csrftoken = getCookie('csrftoken')
-                        xhr.setRequestHeader("X-CSRFToken", csrftoken);
-
-                    },
-                    success: function (data) {
-                        sorted = data.sort(function (item1, item2) { return item2.publish_date - item1.publish_date; })
-                        capacitySetting.baseimages = sorted.map(function (o) { return { value: o.id, text: o.provider_name } })
-                        capacitySetting.baseImageValue = sorted[0].id
-                    },
-                    error: function (data) {
-                        globalNotificationBanner.error = data
-                    }
-                });
+            value = '{{ default_cmp_image }}';
+            const selectedHostTypeObject = capacityCreationInfo.hostTypes.find(hostType => hostType.id === this.selectedHostTypeValue);
+            if (selectedHostTypeObject.abstract_name.startsWith('EbsCompute')) {
+                capacitySetting.imageNames = mapImageNameToOptions(info.baseImageNames);
+                scope.imageNameChange(value);
             }
         },
         placementsHelpClick: function(){
@@ -428,68 +552,94 @@ var capacitySetting = new Vue({
                     })
                 }
         },
-        selectpublicip: function(value){
-            this.assignPublicIP = value
-            var arr = value ? placements.allPublic : placements.allPrivate
-            this.placements = arr.map(function(item, index) {
-                return {
-                    value: item.id,
-                    text: item.provider_name,
-                    isSelected:  placements.inDefault(item)//Select Top 3 by default
-                }
-            })
+        selectpublicip: function(assignPublicIP){
+            this.assignPublicIP = assignPublicIP
+            this.placements = placements.getFullList(assignPublicIP, null)
+        },
+        selecttypes: function(value){
+            this.enableMultipleHostTypes = value;
+            this.backupHosttypes = getBackupIds(info.hostTypesMapping, capacityCreationInfo.hostTypes, capacitySetting.selectedHostTypeValue, this.enableMultipleHostTypes);
         },
         validateInput: function (clusterInfo) {
             //Validate input data.
-            var count = clusterInfo['capacity']
+            var count = clusterInfo['capacity'];
             if (count == null || isNaN(count) || count < 0 || count > 1000) {
                 // do something
-                globalNotificationBanner.error = "Capacity must be a number between 0 and 1000"
-                return false
+                globalNotificationBanner.error = "Capacity must be a number between 0 and 1000";
+                return false;
             }
 
             if (clusterInfo.placement == null || clusterInfo.placement.length === 0) {
-                globalNotificationBanner.error = "Placement is not specified"
+                globalNotificationBanner.error = "Placement is not specified";
+                return false;
             }
 
             if (this.imageNameValue.startsWith('cmp_base')){
                 if (clusterInfo.configs['cmp_group'] == undefined || clusterInfo.configs['cmp_group'].indexOf('CMP,')<0){
-                    globalNotificationBanner.error = "cmp_base image must have cmp_group defined and CMP in it"
-                    return false
+                    globalNotificationBanner.error = "cmp_base image must have cmp_group defined and CMP in it";
+                    return false;
                 }
 
                 if (clusterInfo.configs['pinfo_role'] == undefined || clusterInfo.configs['pinfo_role']!='cmp_base'){
-                    globalNotificationBanner.error = "cmp_base image must have pinfo_role set to be cmp_base"
-                    return false
+                    globalNotificationBanner.error = "cmp_base image must have pinfo_role set to be cmp_base";
+                    return false;
                 }
 
                 if (clusterInfo.configs['pinfo_team'] == undefined || clusterInfo.configs['pinfo_team']!='cloudeng'){
-                    globalNotificationBanner.error = "cmp_base image must have pinfo_team set to be cloudeng"
-                    return false
+                    globalNotificationBanner.error = "cmp_base image must have pinfo_team set to be cloudeng";
+                    return false;
                 }
 
                 if (clusterInfo.configs['pinfo_environment'] == undefined ||
                 (clusterInfo.configs['pinfo_environment']!='prod' && clusterInfo.configs['pinfo_environment']!='dev')){
-                    globalNotificationBanner.error = "cmp_base image must have pinfo_environment set to be dev or prod"
-                    return false
+                    globalNotificationBanner.error = "cmp_base image must have pinfo_environment set to be dev or prod";
+                    return false;
                 }
             }
             else if ('pinfo_role' in clusterInfo.configs && clusterInfo.configs['pinfo_role']==='cmp_base'){
-                globalNotificationBanner.error = "Non cmp_base image cannot have pinfo_role set to cmp_base"
-                return false
+                globalNotificationBanner.error = "Non cmp_base image cannot have pinfo_role set to cmp_base";
+                return false;
             }
 
             if (clusterInfo.cellName  === "aws-us-east-2" && clusterInfo.hostType.startsWith('Compute')){
-                globalNotificationBanner.error = "compute hosts (c3) are not available. Use EbsCompute instead"
-                return false
+                globalNotificationBanner.error = "compute hosts (c3) are not available. Use EbsCompute instead";
+                return false;
             }
 
             if (this.imageNameValue ==='cmp_base' && clusterInfo.hostType.startsWith('EbsCompute')){
-                globalNotificationBanner.error = "EbsCompute host must use ebs AMI. Try cmp_base-ebs"
-                return false
+                globalNotificationBanner.error = "EbsCompute host must use ebs AMI. Try cmp_base-ebs";
+                return false;
             }
 
-            return true
+            if ('root_volume_type' in clusterInfo.configs && !(["gp2", "gp3"].includes(clusterInfo.configs['root_volume_type']))) {
+                globalNotificationBanner.error = "At this time only gp2 and gp3 root volume types are supported";
+                return false;
+            }
+
+            const replacementTimeout = clusterInfo['replacementTimeout']
+            if (replacementTimeout == null || isNaN(replacementTimeout) || replacementTimeout < 5 || replacementTimeout > 24 * 60) {
+                globalNotificationBanner.error = "Replacement timeout must be a number between 5 and 1440 minutes (24 hours)";
+                return false;
+            }
+            var access_role = clusterInfo.configs['access_role'] ?? '';
+            if (access_role.trim().length === 0) {
+                globalNotificationBanner.error = "Access Role must be specified and cannot be empty";
+                return false;
+            }
+
+            var host_type = clusterInfo['hostType'];
+            if (host_type ===undefined || host_type === null || host_type.trim().length===0){
+                globalNotificationBanner.error = "Host type must be specified";
+                return false;
+            }
+
+            var host_type = capacityCreationInfo.hostTypes?.find(hostType => hostType.id === clusterInfo['hostType']);
+            if (!host_type || hostTypes.isDisabledHostType(host_type)) {
+                globalNotificationBanner.error = "Host type must not be retired or decomissioned";
+                return false;
+            }
+
+            return true;
         },
         sendRequest: function (clusterInfo) {
             $.ajax({
@@ -516,15 +666,24 @@ var capacitySetting = new Vue({
             var clusterInfo = {};
             clusterInfo['provider'] = this.currentProvider;
             clusterInfo['cellName'] = this.currentCell;
+            clusterInfo['archName'] = this.currentArch;
+            clusterInfo['bandwidthWeighting'] = this.currentBandwidthWeight;
+            clusterInfo['useEbsCheck'] = this.useEbsCheck;
+            clusterInfo['useEnaExpress'] = this.useEnaExpress;
             clusterInfo['capacity'] = Number(this.instanceCount);
-            clusterInfo['baseImageId'] = this.baseImageValue;
+            clusterInfo['useLaunchTemplate'] =  info.defaultUseLaunchTemplate;
             clusterInfo['hostType'] = this.selectedHostTypeValue;
             clusterInfo['securityZone'] = this.selectedSecurityZoneValue;
+            clusterInfo['replacementTimeout'] = this.replacementTimeout;
+            clusterInfo['statefulStatus'] =  this.selectedStatefulStatus;
+            clusterInfo['accountId'] = this.currentAccountId;
+            clusterInfo['enableMultipleHostTypes'] = this.enableMultipleHostTypes;
             if (this.selectedPlacements != null && this.selectedPlacements.length>0){
                 clusterInfo['placement'] = this.selectedPlacements.join(',');
             }
             else{
-                clusterInfo['placement'] = this.placements.filter(function(item){
+                const placementArray = Object.entries(this.placements).map(function(x){return x[1]}).flat(1);
+                clusterInfo['placement'] = placementArray.filter(function(item){
                     return item.isSelected
                 }).map(function(item){ return item.value}).join(',')
             }
@@ -540,6 +699,18 @@ var capacitySetting = new Vue({
             else {
                 clusterInfo.configs['assign_public_ip'] = false
             }
+
+            if (!this.pinImage) {
+                clusterInfo['autoUpdateBaseImage'] = true;
+                clusterInfo['baseImageName'] = this.imageNameValue;
+            } else {
+                clusterInfo['autoUpdateBaseImage'] = false;
+                clusterInfo['baseImageId'] = this.baseImageValue;
+            }
+
+            let accessRoleObj = this.allUserData.find(({name}) => name === "access_role");
+            clusterInfo.configs['access_role'] = accessRoleObj?.value;
+
             if (this.validateInput(clusterInfo)) {
                 //Send request
                 this.sendRequest(clusterInfo);
@@ -549,7 +720,13 @@ var capacitySetting = new Vue({
             if (value) {
                 this.createCapacity();
             }
-        }
+        },
+        statefulHelpClick: function(value) {
+            this.showStatefulHelp = !this.showStatefulHelp
+        },
+        updateStatefulStatus: function(value) {
+            this.selectedStatefulStatus = value
+        },
     },
     watch: {
         placements: function(){
@@ -558,12 +735,62 @@ var capacitySetting = new Vue({
             Vue.nextTick(function(){
                 $(".chosen-select").trigger("chosen:updated")
             })
+        },
+        allUserData: function() {
+            let accessRoleObj = this.allUserData.find(({name}) => name === "access_role");
+            localStorage.setItem("accessRole", accessRoleObj.value);
         }
     }
-})
+});
 
+
+function getUiCells(accountId) {
+    const account = getAccount(accountId);
+    if (account && account.cells) {
+        return account.cells
+            .map(uiCell);
+    }
+    return info.cells
+        .map(uiCell);
+}
+
+function getDefaultCell(accountId) {
+    const account = getAccount(accountId);
+
+    if (account && account.cells) {
+        if (!account.cells.some(cell => cell.name === info.defaultCell)) {
+            return account.cells[0].name;
+        }
+    }
+    return info.defaultCell;
+}
+
+function uiCell(item) {
+    return {
+        value: item.name,
+        text: item.name,
+        isSelected: item.name === info.defaultCell
+    };
+}
 
 $(document).ready(function () {
+    $('.single-select-search').chosen({
+        "width": "100%"
+    }).change(function() {
+        capacitySetting.selectedHostTypeValue = $('.single-select-search').val();
+        capacitySetting.backupHosttypes = "None";
+        capacitySetting.enableMultipleHostTypes = false;
+        capacitySetting.canChangeBandwidth = checkHostType(capacitySetting.hostTypes, capacitySetting.selectedHostTypeValue);
+        capacitySetting.currentBandwidthWeight = "default";
+        capacitySetting.bandwidthweights = info.bandwidthWeights.map(function(item) {
+            return {
+                value: item.name,
+                text: item.name,
+                isSelected: item.name === "default"
+            }
+        });
+    });
+
     $(".chosen-select").chosen({ "width": "100%" })
         .change(function () {
             capacitySetting.selectedPlacements = $('.chosen-select').val()

@@ -13,23 +13,32 @@
 # limitations under the License.
 
 # -*- coding: utf-8 -*-
-"""Collection of all env promote config views
-"""
+"""Collection of all env promote config views"""
+
 import json
 import logging
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.middleware.csrf import get_token
 from django.shortcuts import render
-from django.template.loader import render_to_string
 from django.views.generic import View
-import common
-from helpers import environs_helper, clusters_helper, autoscaling_groups_helper
-from helpers import baseimages_helper
-from deploy_board.settings import IS_PINTEREST
-
+from .common import get_env_groups, get_all_stages
+from .helpers import (
+    environs_helper,
+    clusters_helper,
+    autoscaling_groups_helper,
+    placements_helper,
+)
+from .helpers import baseimages_helper
+from deploy_board.settings import (
+    IS_PINTEREST,
+    CONFLICTING_DEPLOY_SERVICE_WIKI_URL,
+    ENTITLEMENTS_UI_LINK,
+    ENTITLEMENT_SUPPORT,
+)
 
 
 logger = logging.getLogger(__name__)
+
 
 class EnvCapacityConfigView(View):
     def get(self, request, name, stage):
@@ -39,27 +48,49 @@ class EnvCapacityConfigView(View):
         create_new = False
         adv = False
         env = environs_helper.get_env_by_stage(request, name, stage)
-        cluster_name = env.get('clusterName')
+        if env is None:
+            raise Http404("Environment %s/%s does not exist." % (name, stage))
+        cluster_name = env.get("clusterName")
+        termination_limit = env.get("terminationLimit")
+        placements = None
+        is_managed_resource = False
         if IS_PINTEREST:
             provider_list = baseimages_helper.get_all_providers(request)
             basic_cluster_info = clusters_helper.get_cluster(request, cluster_name)
             if basic_cluster_info:
-                base_image_id = basic_cluster_info.get('baseImageId')
+                base_image_id = basic_cluster_info.get("baseImageId")
                 base_image = baseimages_helper.get_by_id(request, base_image_id)
-                asg_cluster = autoscaling_groups_helper.get_group_info(request, cluster_name)
-                basic_cluster_info['asg_info'] = asg_cluster
-                basic_cluster_info['base_image_info'] = base_image
+                asg_cluster = autoscaling_groups_helper.get_group_info(
+                    request, cluster_name
+                )
+                basic_cluster_info["asg_info"] = asg_cluster
+                basic_cluster_info["base_image_info"] = base_image
+                is_managed_resource = basic_cluster_info.get("isManagedResource", False)
+                try:
+                    account_id = basic_cluster_info.get("accountId")
+                    placements = placements_helper.get_simplified_by_ids(
+                        request,
+                        account_id,
+                        basic_cluster_info["placement"],
+                        basic_cluster_info["provider"],
+                        basic_cluster_info["cellName"],
+                    )
+                except Exception as e:
+                    logger.warning("Failed to get placements: {}".format(e))
 
             params = request.GET
-            if params.get('adv'):
-                adv = params.get('adv')
-            if params.get('create_new'):
-                create_new = params.get('create_new')
+            if params.get("adv"):
+                adv = params.get("adv")
+            if params.get("create_new"):
+                create_new = params.get("create_new")
 
-        if request.is_ajax():
+        is_ajax = request.headers.get("x-requested-with") == "XMLHttpRequest"
+        if is_ajax:
             # return data for ajax calls
-            hosts = environs_helper.get_env_capacity(request, name, stage, capacity_type="HOST")
-            groups = common.get_env_groups(request, name, stage)
+            hosts = environs_helper.get_env_capacity(
+                request, name, stage, capacity_type="HOST"
+            )
+            groups = get_env_groups(request, name, stage)
             if cluster_name in groups:
                 groups.remove(cluster_name)
             info = {
@@ -67,47 +98,61 @@ class EnvCapacityConfigView(View):
                 "hosts": hosts,
                 "groups": groups,
                 "csrf_token": get_token(request),
-                'is_pinterest': IS_PINTEREST,
-                'provider_list': provider_list,
-                'basic_cluster_info': basic_cluster_info,
-                'adv': adv,
-                'create_new': create_new,
+                "is_pinterest": IS_PINTEREST,
+                "provider_list": provider_list,
+                "basic_cluster_info": basic_cluster_info,
+                "adv": adv,
+                "create_new": create_new,
+                "placements": placements,
             }
             return HttpResponse(json.dumps(info), content_type="application/json")
 
         # otherwise, return a page
         envs = environs_helper.get_all_env_stages(request, name)
-        stages, env = common.get_all_stages(envs, stage)
-        hosts = environs_helper.get_env_capacity(request, name, stage, capacity_type="HOST")
-        groups = common.get_env_groups(request, name, stage)
+        stages, env = get_all_stages(envs, stage)
+        hosts = environs_helper.get_env_capacity(
+            request, name, stage, capacity_type="HOST"
+        )
+        groups = get_env_groups(request, name, stage)
+
         if cluster_name in groups:
             groups.remove(cluster_name)
         data = {
             "envs": envs,
             "env": env,
+            "all_stage_types": sorted(environs_helper.STAGE_TYPES),
             "stages": stages,
             "hosts": hosts,
             "groups": groups,
-            'is_pinterest': IS_PINTEREST,
-            'provider_list': provider_list,
-            'basic_cluster_info': basic_cluster_info,
-            'adv': adv,
-            'create_new': create_new
+            "is_pinterest": IS_PINTEREST,
+            "provider_list": provider_list,
+            "basic_cluster_info": basic_cluster_info,
+            "adv": adv,
+            "create_new": create_new,
+            "placements": placements,
+            "termination_limit": termination_limit,
+            "cluster_name": cluster_name,
+            "conflicting_deploy_service_wiki_url": CONFLICTING_DEPLOY_SERVICE_WIKI_URL,
+            "is_managed_resource": is_managed_resource,
+            "entitlements_ui_link": ENTITLEMENTS_UI_LINK,
+            "entitlement_support": ENTITLEMENT_SUPPORT,
         }
-        data['info'] = json.dumps(data)
-        return render(request, 'configs/capacity.html', data)
+        data["info"] = json.dumps(data)
+        return render(request, "configs/capacity.html", data)
 
     def post(self, request, name, stage):
         logger.info("Post to capacity with data {0}".format(request.body))
         data = json.loads(request.body)
-        hosts =  data.get('hosts')
-        if hosts != None:
-            environs_helper.update_env_capacity(request, name, stage, capacity_type="HOST", data=hosts)
+        hosts = data.get("hosts")
+        if hosts is not None:
+            environs_helper.update_env_capacity(
+                request, name, stage, capacity_type="HOST", data=hosts
+            )
 
         groups = data.get("groups")
-        if groups != None:
-            environs_helper.update_env_capacity(request, name, stage, capacity_type="GROUP",
-                                                data=groups)
+        if groups is not None:
+            environs_helper.update_env_capacity(
+                request, name, stage, capacity_type="GROUP", data=groups
+            )
 
         return self.get(request, name, stage)
-

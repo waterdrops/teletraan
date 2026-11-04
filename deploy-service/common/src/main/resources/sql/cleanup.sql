@@ -24,4 +24,9 @@ DROP TABLE IF EXISTS tags;
 DROP TABLE IF EXISTS tokens_and_roles;
 DROP TABLE IF EXISTS user_ratings;
 DROP TABLE IF EXISTS users_and_roles;
-DROP TABLE IF EXISTS schedules
+DROP TABLE IF EXISTS schedules;
+DROP TABLE IF EXISTS hosts_and_agents;
+DROP TABLE IF EXISTS deploy_constraints;
+DROP TABLE IF EXISTS agent_counts;
+DROP TABLE IF EXISTS pindeploy;
+DROP TABLE IF EXISTS worker_jobs;

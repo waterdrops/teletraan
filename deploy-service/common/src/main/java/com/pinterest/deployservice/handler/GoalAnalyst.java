@@ -1,12 +1,12 @@
 /**
- * Copyright 2016 Pinterest, Inc.
+ * Copyright (c) 2016-2024 Pinterest, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *  
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *    
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,16 +15,40 @@
  */
 package com.pinterest.deployservice.handler;
 
-import com.pinterest.deployservice.bean.*;
+import static com.pinterest.teletraan.universal.metrics.micrometer.PinStatsNamingConvention.CUSTOM_NAME_PREFIX;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pinterest.deployservice.bean.AgentBean;
+import com.pinterest.deployservice.bean.AgentState;
+import com.pinterest.deployservice.bean.AgentStatus;
+import com.pinterest.deployservice.bean.DeployBean;
+import com.pinterest.deployservice.bean.DeployConstraintBean;
+import com.pinterest.deployservice.bean.DeployPriority;
+import com.pinterest.deployservice.bean.DeployStage;
+import com.pinterest.deployservice.bean.DeployType;
+import com.pinterest.deployservice.bean.EnvironBean;
+import com.pinterest.deployservice.bean.HostBean;
+import com.pinterest.deployservice.bean.HostTagBean;
+import com.pinterest.deployservice.bean.PingReportBean;
 import com.pinterest.deployservice.common.Constants;
 import com.pinterest.deployservice.common.StateMachines;
+import com.pinterest.deployservice.dao.DeployConstraintDAO;
 import com.pinterest.deployservice.dao.DeployDAO;
 import com.pinterest.deployservice.dao.EnvironDAO;
-import org.apache.commons.lang.StringUtils;
+import com.pinterest.deployservice.dao.HostDAO;
+import com.pinterest.deployservice.dao.HostTagDAO;
+import io.micrometer.core.instrument.Metrics;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.*;
 
 public class GoalAnalyst {
     private static final Logger LOG = LoggerFactory.getLogger(GoalAnalyst.class);
@@ -32,10 +56,21 @@ public class GoalAnalyst {
     // Notice hotfix and rollback priority should still lower than system service priority
     private static final int HOT_FIX_PRIORITY = DeployPriority.HIGHER.getValue() - 20;
     private static final int ROLL_BACK_PRIORITY = DeployPriority.HIGHER.getValue() - 10;
+    private static final String DEPLOY_LATENCY_TIMER_NAME =
+            CUSTOM_NAME_PREFIX + "teletraan.%s.%s.deploy_latency";
+    private static final String LAUNCH_LATENCY_TIMER_NAME =
+            CUSTOM_NAME_PREFIX + "teletraan.%s.%s.launch_latency";
+    private static final String FIRST_DEPLOY_COUNTER_NAME =
+            CUSTOM_NAME_PREFIX + "teletraan.%s.%s.first_deploy";
 
     private String host;
     private String host_id;
     private DeployDAO deployDAO;
+    private HostTagDAO hostTagDAO;
+    private DeployConstraintDAO deployConstraintDAO;
+    private HostDAO hostDAO;
+
+    private String ec2Tags;
 
     // input maps, all keyed by envId
     private Map<String, EnvironBean> envs;
@@ -82,7 +117,8 @@ public class GoalAnalyst {
         // Original report
         PingReportBean report;
 
-        InstallCandidate(EnvironBean env, boolean needWait, AgentBean updateBean, PingReportBean report) {
+        InstallCandidate(
+                EnvironBean env, boolean needWait, AgentBean updateBean, PingReportBean report) {
             this.env = env;
             this.needWait = needWait;
             this.updateBean = updateBean;
@@ -90,39 +126,38 @@ public class GoalAnalyst {
         }
 
         int getDeployPriority(EnvironBean env, Boolean firstDeploy) {
-            if (env.getDeploy_type() == null) {
-              return DeployPriority.NORMAL.getValue();
+            // System level deploy, or sidecar service deploy mostly, will use dedicated system
+            // priority. Notice for system level deploy, we disregard the priorities of hotfix
+            // or rollback.
+            Integer systemPriority = env.getSystem_priority();
+            if (systemPriority != null) {
+                return systemPriority;
+            }
+            if (firstDeploy != null && firstDeploy) {
+                // First deploy should always use the setting priority.
+                return env.getPriority().getValue();
+            }
+            DeployType deployType = env.getDeploy_type();
+            if (deployType == null) {
+                return DeployPriority.NORMAL.getValue();
+            } else if (deployType == DeployType.HOTFIX) {
+                return HOT_FIX_PRIORITY;
+            } else if (deployType == DeployType.ROLLBACK) {
+                return ROLL_BACK_PRIORITY;
             } else {
-                // System level deploy, or sidecar service deploy mostly, will use dedicated system
-                // priority. Notice for system level deploy, we disregard the priorities of hotfix
-                // or rollback.
-                Integer systemPriority = env.getSystem_priority();
-                if (systemPriority != null) {
-                    return systemPriority;
-                }
-
-                if (firstDeploy != null && firstDeploy) {
-                    //First deploy should always use the setting priority.
-                    return env.getPriority().getValue();
-                } else {
-                    DeployType deployType = env.getDeploy_type();
-                    if (deployType == DeployType.HOTFIX) {
-                        return HOT_FIX_PRIORITY;
-                    } else if (deployType == DeployType.ROLLBACK) {
-                        return ROLL_BACK_PRIORITY;
-                    } else {
-                        return env.getPriority().getValue();
-                    }
-                }
+                return (env.getPriority() != null)
+                        ? env.getPriority().getValue()
+                        : DeployPriority.NORMAL.getValue();
             }
         }
 
         @Override
         public int compareTo(InstallCandidate installCandidate) {
-            int priority1 = getDeployPriority(env, updateBean.getFirst_deploy() );
+            int priority1 = getDeployPriority(env, updateBean.getFirst_deploy());
             int priority2 = getDeployPriority(installCandidate.env, updateBean.getFirst_deploy());
             // STOP has higher priority. If the agent state is STOP, reverse the priority
-            if (updateBean.getState() == AgentState.STOP && installCandidate.updateBean.getState() == AgentState.STOP) {
+            if (updateBean.getState() == AgentState.STOP
+                    && installCandidate.updateBean.getState() == AgentState.STOP) {
                 return priority2 - priority1;
             } else if (updateBean.getState() == AgentState.STOP) {
                 return -1;
@@ -131,7 +166,8 @@ public class GoalAnalyst {
             }
 
             if (priority1 == priority2) {
-                // If same priority, choose the one does not need to wait, or in the middle of deploying already
+                // If same priority, choose the one does not need to wait, or in the middle of
+                // deploying already
                 if (needWait && !installCandidate.needWait) {
                     return 1;
                 } else if (!needWait && installCandidate.needWait) {
@@ -145,44 +181,73 @@ public class GoalAnalyst {
 
         @Override
         public String toString() {
-            return "InstallCandidate{" +
-                "env=" + env +
-                ", checkNeedWait=" + needWait +
-                ", updateBean=" + updateBean +
-                '}';
+            return "InstallCandidate{"
+                    + "env="
+                    + env
+                    + ", checkNeedWait="
+                    + needWait
+                    + ", updateBean="
+                    + updateBean
+                    + '}';
         }
     }
 
     public class UninstallCandidate implements Comparable<UninstallCandidate> {
+        AgentBean updateBean;
         PingReportBean report;
         EnvironBean environ;
 
-        UninstallCandidate(PingReportBean report) {
+        UninstallCandidate(AgentBean updateBean, PingReportBean report) {
             this.report = report;
+            this.updateBean = updateBean;
             environ = existingAgentEnv.getOrDefault(report.getEnvId(), new EnvironBean());
+        }
+
+        int getUninstallPriority(EnvironBean environ) {
+            Integer systemPriority = environ.getSystem_priority();
+            if (systemPriority != null) {
+                return systemPriority;
+            }
+            return (environ.getPriority() != null)
+                    ? environ.getPriority().getValue()
+                    : DeployPriority.NORMAL.getValue();
         }
 
         @Override
         public int compareTo(UninstallCandidate uninstallCandidate) {
-            return 0;
+            int priority1 = getUninstallPriority(environ);
+            int priority2 = getUninstallPriority(uninstallCandidate.environ);
+            return priority2 - priority1;
         }
 
         @Override
         public String toString() {
-            return "UninstallCandidate{" +
-                "report=" + report +
-                ", env=" + environ +
-                '}';
+            return "UninstallCandidate{" + "report=" + report + ", env=" + environ + '}';
         }
     }
 
-    GoalAnalyst(DeployDAO deployDAO, EnvironDAO environDAO, String host, String host_id, Map<String, EnvironBean> envs, Map<String, PingReportBean> reports, Map<String, AgentBean> agents) {
+    GoalAnalyst(
+            DeployConstraintDAO deployConstraintDAO,
+            HostTagDAO hostTagDAO,
+            DeployDAO deployDAO,
+            EnvironDAO environDAO,
+            HostDAO hostDAO,
+            String host,
+            String host_id,
+            Map<String, EnvironBean> envs,
+            Map<String, PingReportBean> reports,
+            Map<String, AgentBean> agents,
+            String ec2Tags) {
         this.deployDAO = deployDAO;
         this.host = host;
         this.host_id = host_id;
         this.envs = envs;
         this.reports = reports;
         this.agents = agents;
+        this.ec2Tags = ec2Tags;
+        this.hostTagDAO = hostTagDAO;
+        this.deployConstraintDAO = deployConstraintDAO;
+        this.hostDAO = hostDAO;
 
         for (Map.Entry<String, AgentBean> entry : agents.entrySet()) {
             try {
@@ -230,10 +295,20 @@ public class GoalAnalyst {
     // What the new agent state should be, if this agent is not chosen to be deploy goal
     AgentState proposeNewAgentState(PingReportBean report, AgentBean agent) {
         AgentStatus status = report.getAgentStatus();
+        if (agent != null
+                && report.getAgentState() != null
+                && report.getAgentState().equals("RESET_BY_SYSTEM")) {
+            agent.setState(AgentState.RESET_BY_SYSTEM);
+        }
+
         if (agent != null && agent.getState() == AgentState.STOP) {
             // agent has been explicitly STOP, do not override
-            if (agent.getDeploy_stage() == DeployStage.STOPPING && FATAL_AGENT_STATUSES.contains(status)) {
-                LOG.debug("Agent DeployStage is STOPPING, but report status is {}, propose new agent state as {} ", status, AgentState.PAUSED_BY_SYSTEM);
+            if (agent.getDeploy_stage() == DeployStage.STOPPING
+                    && FATAL_AGENT_STATUSES.contains(status)) {
+                LOG.debug(
+                        "Agent DeployStage is STOPPING, but report status is {}, propose new agent state as {} ",
+                        status,
+                        AgentState.PAUSED_BY_SYSTEM);
                 return AgentState.PAUSED_BY_SYSTEM;
             }
             return AgentState.STOP;
@@ -250,65 +325,177 @@ public class GoalAnalyst {
             return AgentState.RESET;
         }
 
+        if (agent != null && agent.getState() == AgentState.RESET_BY_SYSTEM) {
+            // agent has been explicitly redeployed by deployd, do not override
+            // subsequent code would have to decide if need to override RESET_BY_SYSTEM state
+            return AgentState.RESET_BY_SYSTEM;
+        }
+
         if (status == AgentStatus.SUCCEEDED) {
             // Override current agent status record
-            LOG.debug("Report status is {}, propose new agent state as {} ",
-                status, AgentState.NORMAL);
+            LOG.debug(
+                    "Report status is {}, propose new agent state as {} ",
+                    status,
+                    AgentState.NORMAL);
             return AgentState.NORMAL;
         }
 
         if (FATAL_AGENT_STATUSES.contains(status)) {
             // Fatal error, pause agent deploy
-            LOG.debug("Report status is {}, propose new agent state as {} ", status, AgentState.PAUSED_BY_SYSTEM);
+            LOG.debug(
+                    "Report status is {}, propose new agent state as {} ",
+                    status,
+                    AgentState.PAUSED_BY_SYSTEM);
             return AgentState.PAUSED_BY_SYSTEM;
         }
 
         // Otherwise, return NORMAL
         if (agent != null) {
-            LOG.debug("Report status is {}, reuse the old agent state {} ", status, agent.getState());
+            LOG.debug(
+                    "Report status is {}, reuse the old agent state {} ", status, agent.getState());
             return agent.getState();
         } else {
-            LOG.debug("Report status is {}, and we do not have agent record, use state {} ", status, AgentState.NORMAL);
+            LOG.debug(
+                    "Report status is {}, and we do not have agent record, use state {} ",
+                    status,
+                    AgentState.NORMAL);
             return AgentState.NORMAL;
         }
     }
 
+    boolean shouldUpdateAgentRecord(AgentBean origBean, AgentBean updateBean) {
+
+        if (origBean == null || updateBean == null) {
+            return true;
+        }
+        if (origBean.getHost_id() != null
+                && origBean.getHost_id().equals(host_id)
+                && origBean.getDeploy_id() != null
+                && origBean.getDeploy_id().equals(updateBean.getDeploy_id())
+                && origBean.getEnv_id() != null
+                && origBean.getEnv_id().equals(updateBean.getEnv_id())
+                && origBean.getFail_count() != null
+                && origBean.getFail_count().equals(updateBean.getFail_count())
+                && origBean.getStatus() != null
+                && origBean.getStatus().equals(updateBean.getStatus())
+                && origBean.getLast_err_no() != null
+                && origBean.getLast_err_no().equals(updateBean.getLast_err_no())
+                && origBean.getState() != null
+                && origBean.getState().equals(updateBean.getState())
+                && origBean.getDeploy_stage() != null
+                && origBean.getDeploy_stage().equals(updateBean.getDeploy_stage())
+                && origBean.getContainer_health_status() != null
+                && origBean.getContainer_health_status()
+                        .equals(updateBean.getContainer_health_status())) {
+            LOG.debug(
+                    "Skip updating agent record for env_id {}, deploy_id {} on host {}",
+                    origBean.getEnv_id(),
+                    origBean.getDeploy_id(),
+                    origBean.getHost_id());
+            return false;
+        }
+        LOG.info(
+                "Agent record for env_id {}, deploy_id {} on host {} needs update",
+                origBean.getEnv_id(),
+                origBean.getDeploy_id(),
+                origBean.getHost_id());
+        return true;
+    }
+
     // Generate new agent bean based on the report & current agent record,
-    // This is intended to be used for update agent record, not for goal,
     // We populate all the fields, since this could be used for insertOrUpdate as well
     AgentBean genUpdateBeanByReport(PingReportBean report, AgentBean agent) {
         // We generate complete bean in case we need to insertOrUpdate it into agents table
+        long currentTime = System.currentTimeMillis();
         AgentBean updateBean = new AgentBean();
         updateBean.setHost_name(host);
         updateBean.setHost_id(host_id);
         updateBean.setDeploy_id(report.getDeployId());
         updateBean.setEnv_id(report.getEnvId());
-        updateBean.setLast_update(System.currentTimeMillis());
+        updateBean.setLast_update(currentTime);
         updateBean.setLast_operator(Constants.SYSTEM_OPERATOR);
         updateBean.setFail_count(report.getFailCount());
         updateBean.setStatus(report.getAgentStatus());
         updateBean.setLast_err_no(report.getErrorCode());
         updateBean.setState(proposeNewAgentState(report, agent));
-        updateBean.setStage_start_date(System.currentTimeMillis());
+        updateBean.setStage_start_date(currentTime);
         updateBean.setDeploy_stage(report.getDeployStage());
+        if (report.getContainerHealthStatus() == null) {
+            updateBean.setContainer_health_status("");
+        } else {
+            updateBean.setContainer_health_status(report.getContainerHealthStatus());
+        }
 
         if (agent == null) {
             // if agent is missing in agent table, treat it as not first_deploy.
             updateBean.setFirst_deploy(false);
-            updateBean.setStart_date(System.currentTimeMillis());
+            updateBean.setStart_date(currentTime);
         } else {
             updateBean.setFirst_deploy(agent.getFirst_deploy());
             updateBean.setStart_date(agent.getStart_date());
         }
 
-        if (report.getDeployStage() == DeployStage.SERVING_BUILD) {
+        if (Boolean.TRUE.equals(updateBean.getFirst_deploy())
+                && (DeployStage.SERVING_BUILD.equals(report.getDeployStage())
+                        || AgentState.PAUSED_BY_SYSTEM.equals(updateBean.getState()))) {
             // turn off first deploy flag
             updateBean.setFirst_deploy(false);
-            updateBean.setFirst_deploy_time(System.currentTimeMillis());
+            updateBean.setFirst_deploy_time(currentTime);
+            emitMetrics(updateBean);
         }
 
         // TODO record error message as well if errorCode != 0
         return updateBean;
+    }
+
+    private void emitMetrics(AgentBean updateBean) {
+        try {
+            EnvironBean env = envs.get(updateBean.getEnv_id());
+            Metrics.timer(
+                            String.format(
+                                    DEPLOY_LATENCY_TIMER_NAME,
+                                    env.getEnv_name(),
+                                    env.getStage_name()))
+                    .record(
+                            Duration.ofMillis(
+                                    updateBean.getFirst_deploy_time()
+                                            - updateBean.getStart_date()));
+            Metrics.counter(
+                            String.format(
+                                    FIRST_DEPLOY_COUNTER_NAME,
+                                    env.getEnv_name(),
+                                    env.getStage_name()),
+                            "success",
+                            String.valueOf(AgentStatus.SUCCEEDED.equals(updateBean.getStatus())))
+                    .increment();
+
+            Long hostStartTime = estimateHostStartTime(updateBean);
+            if (hostStartTime != null) {
+                Metrics.timer(
+                                String.format(
+                                        LAUNCH_LATENCY_TIMER_NAME,
+                                        env.getEnv_name(),
+                                        env.getStage_name()))
+                        .record(
+                                Duration.ofMillis(
+                                        updateBean.getFirst_deploy_time() - hostStartTime));
+            }
+        } catch (Exception ex) {
+            LOG.warn("Failed to emit metrics of {}", updateBean, ex);
+        }
+    }
+
+    private Long estimateHostStartTime(AgentBean agent) {
+        try {
+            List<HostBean> hosts = hostDAO.getHostsByHostId(agent.getHost_id());
+            if (!hosts.isEmpty()) {
+                return hosts.get(0).getCreate_date();
+            }
+        } catch (Exception ex) {
+            LOG.warn("Failed to get host with id {}", agent.getHost_id(), ex);
+        }
+
+        return null;
     }
 
     // Generate new agent bean based on the report & current agent record,
@@ -347,7 +534,8 @@ public class GoalAnalyst {
         agentBean.setLast_err_no(0);
         agentBean.setFail_count(0);
         agentBean.setStage_start_date(now);
-        // agent does not exist, and the existing agent does not have the same env name as current environment
+        // agent does not exist, and the existing agent does not have the same env name as current
+        // environment
         if (agent == null && (!existingAgentEnvNames.contains(env.getEnv_name()))) {
             // both agent and report are null, this should be the first deploy
             agentBean.setFirst_deploy(true);
@@ -371,7 +559,7 @@ public class GoalAnalyst {
         agentBean.setState(AgentState.STOP);
         agentBean.setLast_operator(Constants.SYSTEM_OPERATOR);
         long now = System.currentTimeMillis();
-        agentBean.setStart_date(now);
+        agentBean.setStart_date(agent.getStart_date());
         agentBean.setLast_update(now);
         agentBean.setLast_err_no(0);
         agentBean.setFail_count(0);
@@ -402,7 +590,8 @@ public class GoalAnalyst {
     // just treat this report as if it was working the new deployId. Keep in mind that
     // when we generate return deploy goal, we would have to flip the alias and deployid
     // again - we want this process to be transparent to the agent
-    void transformRollbackDeployId(EnvironBean env, PingReportBean report, AgentBean updateBean) throws Exception {
+    void transformRollbackDeployId(EnvironBean env, PingReportBean report, AgentBean updateBean)
+            throws Exception {
         if (env.getDeploy_id().equals(report.getDeployId())) {
             // We have a matched deploy, nothing to change
             return;
@@ -416,11 +605,15 @@ public class GoalAnalyst {
         DeployBean deployBean = deployDAO.getById(env.getDeploy_id());
         String alias = deployBean.getAlias();
         if (report.getDeployId().equals(alias)) {
-            LOG.debug("Reported deploy {} is the alias of deploy {}, use {} instead.",
-                report.getDeployId(), env.getDeploy_id(), env.getDeploy_id());
+            LOG.debug(
+                    "Reported deploy {} is the alias of deploy {}, use {} instead.",
+                    report.getDeployId(),
+                    env.getDeploy_id(),
+                    env.getDeploy_id());
             report.setDeployId(env.getDeploy_id());
             report.setDeployAlias(alias);
             updateBean.setDeploy_id(env.getDeploy_id());
+            needUpdateAgents.put(env.getEnv_id(), updateBean);
         }
     }
 
@@ -437,20 +630,38 @@ public class GoalAnalyst {
         return;
     }
 
-    /**
-     * Compute suggested next step based on current env deploy, report deploy and agent status
-     */
-    void process(String envId, EnvironBean env, PingReportBean report, AgentBean agent) throws Exception {
-        LOG.debug("GoalAnalyst process env {}, report = {}, env = {} and agent = {}.", envId, report, env, agent);
+    boolean isFirstDeploy(AgentBean agent, EnvironBean env) {
+        // agent does not exist, and the existing agent does not have the same env name as current
+        // environment
+        if (agent == null && (!existingAgentEnvNames.contains(env.getEnv_name()))) {
+            // both agent and report are null, this should be the first deploy
+            return true;
+        } else {
+            // agent is not null. the first_deploy flag should be same as the record in the database
+            return (agent == null ? false : agent.getFirst_deploy());
+        }
+    }
+
+    /** Compute suggested next step based on current env deploy, report deploy and agent status */
+    void process(String envId, EnvironBean env, PingReportBean report, AgentBean agent)
+            throws Exception {
+        LOG.debug(
+                "GoalAnalyst process env {}, report = {}, env = {} and agent = {}.",
+                envId,
+                report,
+                env,
+                agent);
 
         /**
-         * Generate updateBean based on report, we need to update the agent based on report in the end,
-         * regardless if this agent report is chosen as goal or not
+         * Generate updateBean based on report, we need to update the agent based on report in the
+         * end, regardless if this agent report is chosen as goal or not
          */
         AgentBean updateBean = null;
         if (report != null) {
             updateBean = genUpdateBeanByReport(report, agent);
-            if (!StringUtils.isEmpty(report.getEnvId())) {
+            if (!StringUtils.isEmpty(report.getEnvId())
+                    && updateBean != null
+                    && shouldUpdateAgentRecord(agent, updateBean) == true) {
                 // Only record this in agent table when there is env, otherwise,
                 // we do not know which env it belongs to
                 needUpdateAgents.put(envId, updateBean);
@@ -460,44 +671,83 @@ public class GoalAnalyst {
             }
         }
 
-        /**
-         * Case 0.1: Env has no deploy yet, do not update agent record and return immediately
-         */
+        // update host_tags table
+        if (ec2Tags != null && env != null && env.getDeploy_constraint_id() != null) {
+            String constraintId = env.getDeploy_constraint_id();
+            DeployConstraintBean deployConstraintBean = deployConstraintDAO.getById(constraintId);
+            String tagName = deployConstraintBean.getConstraint_key();
+            ObjectMapper mapper = new ObjectMapper();
+            Map<String, String> tags = mapper.readValue(ec2Tags, Map.class);
+            if (tags.containsKey(tagName)) {
+                String tagValue = tags.get(tagName);
+                HostTagBean hostTagBean = hostTagDAO.get(host_id, tagName);
+                if (hostTagBean == null) {
+                    hostTagBean = new HostTagBean();
+                    hostTagBean.setHost_id(host_id);
+                    hostTagBean.setTag_name(tagName);
+                    hostTagBean.setTag_value(tagValue);
+                    hostTagBean.setEnv_id(envId);
+                    hostTagBean.setCreate_date(System.currentTimeMillis());
+                    hostTagDAO.insertOrUpdate(hostTagBean);
+                    LOG.info(
+                            "Create host tags from Deployd: insert host_tags with env id {}, host id {}, tag name {}, tag value {}",
+                            envId,
+                            host_id,
+                            tagName,
+                            tagValue);
+                } else if (tagValue.equals(hostTagBean.getTag_value()) == false) {
+                    hostTagBean.setTag_value(tagValue);
+                    hostTagBean.setCreate_date(System.currentTimeMillis());
+                    hostTagDAO.insertOrUpdate(hostTagBean);
+                    LOG.info(
+                            "Update host tags from Deployd: update host_tags with env id {}, host id {}, tag name {}, tag value {}",
+                            envId,
+                            host_id,
+                            tagName,
+                            tagValue);
+                }
+            }
+        }
+
+        /** Case 0.1: Env has no deploy yet, do not update agent record and return immediately */
         if (env != null && env.getDeploy_id() == null) {
             if (report == null) {
-                LOG.debug("GoalAnalyst case 0.1.1 - env {} had no deploy yet, not a goal candidate.", env.getEnv_id());
+                LOG.debug(
+                        "GoalAnalyst case 0.1.1 - env {} had no deploy yet, not a goal candidate.",
+                        env.getEnv_id());
             } else {
-                LOG.error("GoalAnalyst case 0.1.2 - env {} had no deploy yet, but has report = {}! not a goal candidate.", env, report);
+                LOG.error(
+                        "GoalAnalyst case 0.1.2 - env {} had no deploy yet, but has report = {}! not a goal candidate.",
+                        env,
+                        report);
             }
             return;
         }
 
-        /**
-         * Case 0.2: Env is onhold, update agent record and return immediately
-         */
-        if (env != null && !StateMachines.ENV_DEPLOY_STATES.contains(env.getEnv_state())) {
+        /** Case 0.2: Env is onhold, update agent record and return immediately */
+        if (env != null
+                && !StateMachines.ENV_DEPLOY_STATES.contains(env.getEnv_state())
+                && (isFirstDeploy(agent, env) == false)) {
             LOG.debug("GoalAnalyst case 0.2 - env {} is onhold, not a goal candidate.", envId);
             return;
         }
 
-        /**
-         * Case 0.3: Agent is onhold by users for this env explicitly, return immediately
-         */
+        /** Case 0.3: Agent is onhold by users for this env explicitly, return immediately */
         if (agent != null && agent.getState() == AgentState.PAUSED_BY_USER) {
-            LOG.debug("GoalAnalyst case 0.3 - agent {} for env {} is onhold by users, not a goal candidate.",
-                agent.getHost_name(), envId);
+            LOG.debug(
+                    "GoalAnalyst case 0.3 - agent {} for env {} is onhold by users, not a goal candidate.",
+                    agent.getHost_name(),
+                    envId);
             return;
         }
 
-        /**
-         * Case 0.4: Agent is STOP
-         */
+        /** Case 0.4: Agent is STOP */
         if (agent != null && agent.getState() == AgentState.STOP) {
-            /**
-             * Case 0.4.1: STOP step completed or status is fatal, send NOOP
-             */
+            /** Case 0.4.1: STOP step completed or status is fatal, send NOOP */
             if (agent.getDeploy_stage() == DeployStage.STOPPED) {
-                LOG.debug("GoalAnalyst - AgentState is STOP, and host {} already in STOPPED stage, not a goal candidate", host);
+                LOG.debug(
+                        "GoalAnalyst - AgentState is STOP, and host {} already in STOPPED stage, not a goal candidate",
+                        host);
                 return;
             }
 
@@ -509,25 +759,37 @@ public class GoalAnalyst {
                 if (agent.getDeploy_stage() != DeployStage.STOPPING) {
                     AgentBean newStopBean = genAgentStopBean(env, agent);
                     installCandidates.add(new InstallCandidate(env, false, newStopBean, report));
-                    LOG.debug("GoalAnalyst - AgentState is STOP and DeployStage is {}, host {} start to gracefully shut down the service for env {}", agent.getDeploy_stage(), host, envId);
+                    LOG.debug(
+                            "GoalAnalyst - AgentState is STOP and DeployStage is {}, host {} start to gracefully shut down the service for env {}",
+                            agent.getDeploy_stage(),
+                            host,
+                            envId);
                     return;
                 } else {
                     if (report != null) {
                         if (FATAL_AGENT_STATUSES.contains(report.getAgentStatus())) {
-                            LOG.debug("GoalAnalyst - AgentState is STOP and DeployStage is STOPPING, but host {} is in {} status, not a goal candidate", host, report.getAgentStatus());
+                            LOG.debug(
+                                    "GoalAnalyst - AgentState is STOP and DeployStage is STOPPING, but host {} is in {} status, not a goal candidate",
+                                    host,
+                                    report.getAgentStatus());
                             return;
                         }
 
                         /**
-                         * Case 0.4.3: If agent status SUCCEEDED, move stage to STOPPED, and send NOOP
-                         * If not succeeded, retry
+                         * Case 0.4.3: If agent status SUCCEEDED, move stage to STOPPED, and send
+                         * NOOP If not succeeded, retry
                          */
                         if (report.getAgentStatus() == AgentStatus.SUCCEEDED) {
-                            LOG.debug("GoalAnalyst - host {} STOP successfully, move agent deploy stage to STOPPED", host);
+                            LOG.debug(
+                                    "GoalAnalyst - host {} STOP successfully, move agent deploy stage to STOPPED",
+                                    host);
                             AgentBean nextStopBean = genNextStopStageBean(report, agent);
-                            installCandidates.add(new InstallCandidate(env, false, nextStopBean, report));
+                            installCandidates.add(
+                                    new InstallCandidate(env, false, nextStopBean, report));
                         } else {
-                            LOG.debug("GoalAnalyst - host {} did not complete gracefully shut down yet", host);
+                            LOG.debug(
+                                    "GoalAnalyst - host {} did not complete gracefully shut down yet",
+                                    host);
                             installCandidates.add(new InstallCandidate(env, false, agent, report));
                         }
                     }
@@ -536,9 +798,7 @@ public class GoalAnalyst {
             }
         }
 
-        /**
-         * Case 1: Both report & env are valid
-         */
+        /** Case 1: Both report & env are valid */
         if (env != null && report != null) {
             // In case the current deploy is a rollback, & reported deploy happens to be the
             // deploy we are rollbacking to, need to user deploy alias instead
@@ -549,69 +809,107 @@ public class GoalAnalyst {
                 // Special case when agent state is RESET, start from beginning
                 if (updateBean.getState() == AgentState.RESET) {
                     installNewUpdateBean(env, report, agent);
-                    LOG.debug("GoalAnalyst case 1.0 - host {} work on the same deploy {}, but agent state is RESET, set env {} as a goal candidate and start from beginning.",
-                        host, env.getDeploy_id(), envId);
+                    LOG.debug(
+                            "GoalAnalyst case 1.0.1 - host {} work on the same deploy {}, but agent state is RESET, set env {} as a goal candidate and start from beginning.",
+                            host,
+                            env.getDeploy_id(),
+                            envId);
+                    return;
+                }
+
+                // Special case when agent state is RESET_BY_SYSTEM, start from beginning
+                if (updateBean.getState() == AgentState.RESET_BY_SYSTEM) {
+                    installNewUpdateBean(env, report, agent);
+                    LOG.debug(
+                            "GoalAnalyst case 1.0.2 - host {} work on the same deploy {}, but agent state is {}, set env {} as a goal candidate and start from beginning.",
+                            host,
+                            env.getDeploy_id(),
+                            AgentState.RESET_BY_SYSTEM,
+                            envId);
                     return;
                 }
 
                 if (report.getDeployStage() == DeployStage.SERVING_BUILD) {
-                    /**
+                    /*
                      * Case 1.1: Report matches env, and deployStage is SERVING_BUILD, e.g agent serves the correct
                      * deploy. This is the most common case for ping, not an install candidate, return immediately
                      */
-                    LOG.debug("GoalAnalyst case 1.1 - host {} is serving correct deploy {} for env {}, not a goal candidate.",
-                        host, env.getDeploy_id(), env.getEnv_id());
+                    LOG.debug(
+                            "GoalAnalyst case 1.1 - host {} is serving correct deploy {} for env {}, not a goal candidate.",
+                            host,
+                            env.getDeploy_id(),
+                            env.getEnv_id());
                     return;
                 }
 
                 if (report.getAgentStatus() == AgentStatus.SUCCEEDED) {
-                    /**
+                    /*
                      * Case 1.2: Report matches env, but deployStage is NOT SERVING_BUILD. A potential deploy candidate.
                      * This is the typical agent/server conversation to install a new deploy in different stages.
                      * There are 2 cases, agent proceed to next stage when succeeded, or, retry the same stage
                      */
                     newUpdateBean = genNextStageUpdateBean(env, report, agent);
-                    LOG.debug("GoalAnalyst case 1.2 - host {} successfully finished stage {} for same deploy {}, set env {} as a goal candidate for next stage {}.",
-                        host, report.getDeployStage(), env.getDeploy_id(), env.getEnv_id(), newUpdateBean.getDeploy_stage());
+                    LOG.debug(
+                            "GoalAnalyst case 1.2 - host {} successfully finished stage {} for same deploy {}, set env {} as a goal candidate for next stage {}.",
+                            host,
+                            report.getDeployStage(),
+                            env.getDeploy_id(),
+                            env.getEnv_id(),
+                            newUpdateBean.getDeploy_stage());
+                    // Since the report already claim agent is restarting, no need to wait
+                    installCandidates.add(new InstallCandidate(env, false, newUpdateBean, report));
                 } else {
                     if (updateBean.getState() == AgentState.PAUSED_BY_SYSTEM) {
-                        /**
+                        /*
                          * Case 1.3: This is the case where agent has a fatal failure, and should not be given
                          * any more change to try, set the state as PAUSED_BY_SYSTEM, not a deploy candidate.
                          */
-                        LOG.debug("GoalAnalyst case 1.3 - host {} failed on stage {} for same deploy {} " +
-                            "will be set to PAUSED_BY_SYSTEM, not a goal candidate.",
-                            host, report.getDeployStage(), env.getDeploy_id(), env.getEnv_id());
+                        LOG.debug(
+                                "GoalAnalyst case 1.3 - host {} failed on stage {} for same deploy {} "
+                                        + "will be set to PAUSED_BY_SYSTEM, not a goal candidate.",
+                                host,
+                                report.getDeployStage(),
+                                env.getDeploy_id(),
+                                env.getEnv_id());
                         return;
                     } else {
                         /**
-                         * TODO how do we make sure to NOT interupt this deploy
-                         * Case 1.4: This is the case we retry deploy step, or just simply record
-                         * the statue while agent is still working on the same stage ( status=UNKNOWN ).
-                         * We allow agent to retry either because user explicitly set AgentState to RESET, or the
-                         * reported error is not fail.
+                         * TODO how do we make sure to NOT interupt this deploy Case 1.4: This is
+                         * the case we retry deploy step, or just simply record the statue while
+                         * agent is still working on the same stage ( status=UNKNOWN ). We allow
+                         * agent to retry either because user explicitly set AgentState to RESET, or
+                         * the reported error is not fail.
                          */
-                        newUpdateBean = genUpdateBeanByReport(report, agent);
-                        LOG.debug("GoalAnalyst case 1.4 - host {} failed stage {} for same deploy {}, set env {} as a goal candidate and repeat the same stage {}.",
-                            host, report.getDeployStage(), env.getDeploy_id(), env.getEnv_id(), newUpdateBean.getDeploy_stage());
+                        LOG.debug(
+                                "GoalAnalyst case 1.4 - host {} failed stage {} for same deploy {}, set env {} as a goal candidate and repeat the same stage {}.",
+                                host,
+                                report.getDeployStage(),
+                                env.getDeploy_id(),
+                                env.getEnv_id(),
+                                updateBean.getDeploy_stage());
+                        // Since the report already claim agent is restarting, no need to wait
+                        installCandidates.add(new InstallCandidate(env, false, updateBean, report));
                     }
                 }
-                // Since the report already claim agent is restarting, no need to wait
-                installCandidates.add(new InstallCandidate(env, false, newUpdateBean, report));
+
             } else {
-                /**
+                /*
                  * Case 1.5: Env has a different deploy than report, this is typically the start of a new deploy.
                  *           This is an install candidate. Need to also check if agent is already in restarting mode,
                  *           so that we know if we need to wait in the line or not
                  */
                 installNewUpdateBean(env, report, agent);
-                LOG.debug("GoalAnalyst case 1.5 - add env {} as a candidate for host {} to install the new deploy {}, agent is reported as in stage {}",
-                    env.getEnv_id(), host, env.getDeploy_id(), report.getDeployStage());
+                LOG.debug(
+                        "GoalAnalyst case 1.5 - add env {} as a candidate for host {} to install the new deploy {}, agent is reported as in stage {}",
+                        env.getEnv_id(),
+                        host,
+                        env.getDeploy_id(),
+                        report.getDeployStage());
             }
             return;
         }
 
-        /**
+        /*
          * Case 2: No report, could be new env, new agent or agent status file being deleted/corrupted.
          *         Create install candidate and start from the very first step, event though agent PAUSED.
          *         Need also to check if agent is already in restarting mode, so that we know if we
@@ -619,29 +917,40 @@ public class GoalAnalyst {
          */
         if (env != null) {
             AgentBean tempBean = genNewUpdateBean(env, agent);
-            boolean needWait = agent == null || agent.getDeploy_stage() == DeployStage.SERVING_BUILD;
-            LOG.debug("GoalAnalyst case 2.1 - add env {} as a candidate for host {} to install new deploy {} from scratch since we do not have a report, needWait={}",
-                env.getEnv_id(), host, env.getDeploy_id(), needWait);
+            boolean needWait =
+                    agent == null || agent.getDeploy_stage() == DeployStage.SERVING_BUILD;
+            LOG.debug(
+                    "GoalAnalyst case 2.1 - add env {} as a candidate for host {} to install new deploy {} from scratch since we do not have a report, needWait={}",
+                    env.getEnv_id(),
+                    host,
+                    env.getDeploy_id(),
+                    needWait);
             installCandidates.add(new InstallCandidate(env, needWait, tempBean, null));
             return;
         }
 
-        /**
+        /*
          * Case 3: This is when the agent is removed out of the env by system or user. We need to add
          *         this to uninstallCandidates. We also set the agent state as DELETE
          */
         if (report != null && !StringUtils.isEmpty(report.getEnvId())) {
-            LOG.debug("GoalAnalyst case 3.1 - add an uninstall candidate to instruct host {} to remove the retired env {}", host, report.getEnvId());
-            uninstallCandidates.add(new UninstallCandidate(report));
+            LOG.debug(
+                    "GoalAnalyst case 3.1 - add an uninstall candidate to instruct host {} to remove the retired env {}",
+                    host,
+                    report.getEnvId());
+            uninstallCandidates.add(new UninstallCandidate(updateBean, report));
             updateBean.setState(AgentState.DELETE);
             return;
         }
 
-        /**
+        /*
          * Case 4: Both report & env are null, remove the unexpected obsoleted agent record!
          */
         if (agent != null) {
-            LOG.warn("GoalAnalyst case 4 - agent record for host={}/env={} is obsoleted, delete it!", host, agent.getEnv_id());
+            LOG.warn(
+                    "GoalAnalyst case 4 - agent record for host={}/env={} is obsoleted, delete it!",
+                    host,
+                    agent.getEnv_id());
             needDeleteAgentEnvIds.add(agent.getEnv_id());
         } else {
             LOG.error("This should NOT happen!");

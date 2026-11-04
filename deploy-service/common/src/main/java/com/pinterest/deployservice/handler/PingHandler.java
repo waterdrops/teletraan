@@ -1,12 +1,12 @@
 /**
- * Copyright 2016 Pinterest, Inc.
- * <p>
+ * Copyright (c) 2016-2025 Pinterest, Inc.
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * <p>
- * http://www.apache.org/licenses/LICENSE-2.0
- * <p>
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,57 +15,85 @@
  */
 package com.pinterest.deployservice.handler;
 
+import static com.pinterest.teletraan.universal.metrics.micrometer.PinStatsNamingConvention.CUSTOM_NAME_PREFIX;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 import com.pinterest.deployservice.ServiceContext;
-import com.pinterest.deployservice.bean.*;
+import com.pinterest.deployservice.bean.AgentBean;
+import com.pinterest.deployservice.bean.AgentCountBean;
+import com.pinterest.deployservice.bean.AgentErrorBean;
+import com.pinterest.deployservice.bean.AgentState;
+import com.pinterest.deployservice.bean.BuildBean;
+import com.pinterest.deployservice.bean.DeployBean;
+import com.pinterest.deployservice.bean.DeployConstraintBean;
+import com.pinterest.deployservice.bean.DeployConstraintType;
+import com.pinterest.deployservice.bean.DeployGoalBean;
+import com.pinterest.deployservice.bean.DeployStage;
+import com.pinterest.deployservice.bean.EnvType;
+import com.pinterest.deployservice.bean.EnvironBean;
+import com.pinterest.deployservice.bean.HostAgentBean;
+import com.pinterest.deployservice.bean.HostBean;
+import com.pinterest.deployservice.bean.HostState;
+import com.pinterest.deployservice.bean.HostTagBean;
+import com.pinterest.deployservice.bean.KnoxStatus;
+import com.pinterest.deployservice.bean.NormandieStatus;
+import com.pinterest.deployservice.bean.OpCode;
+import com.pinterest.deployservice.bean.PingReportBean;
+import com.pinterest.deployservice.bean.PingRequestBean;
+import com.pinterest.deployservice.bean.PingResponseBean;
+import com.pinterest.deployservice.bean.PingResult;
+import com.pinterest.deployservice.bean.ScheduleBean;
+import com.pinterest.deployservice.bean.ScheduleState;
+import com.pinterest.deployservice.bean.TagSyncState;
 import com.pinterest.deployservice.common.Constants;
 import com.pinterest.deployservice.common.DeployInternalException;
 import com.pinterest.deployservice.common.StateMachines;
-import com.pinterest.deployservice.dao.AgentDAO;
 import com.pinterest.deployservice.dao.AgentCountDAO;
+import com.pinterest.deployservice.dao.AgentDAO;
 import com.pinterest.deployservice.dao.AgentErrorDAO;
 import com.pinterest.deployservice.dao.BuildDAO;
 import com.pinterest.deployservice.dao.DeployConstraintDAO;
 import com.pinterest.deployservice.dao.DeployDAO;
 import com.pinterest.deployservice.dao.EnvironDAO;
 import com.pinterest.deployservice.dao.GroupDAO;
-import com.pinterest.deployservice.dao.HostDAO;
 import com.pinterest.deployservice.dao.HostAgentDAO;
+import com.pinterest.deployservice.dao.HostDAO;
 import com.pinterest.deployservice.dao.HostTagDAO;
 import com.pinterest.deployservice.dao.ScheduleDAO;
 import com.pinterest.deployservice.dao.UtilDAO;
 import com.pinterest.deployservice.pingrequests.PingRequestValidator;
-
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.CacheLoader;
-import com.google.common.cache.LoadingCache;
-import org.apache.commons.dbcp.BasicDataSource;
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.collections.MapUtils;
-import org.apache.commons.lang.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
+import io.micrometer.core.instrument.Metrics;
 import java.sql.Connection;
-import java.util.Arrays;
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
-import java.util.*;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.collections4.MapUtils;
+import org.apache.commons.dbcp.BasicDataSource;
+import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-/**
- * This is where we handle agent ping and return deploy goal!
- */
+/** This is where we handle agent ping and return deploy goal! */
 public class PingHandler {
     private static final Logger LOG = LoggerFactory.getLogger(PingHandler.class);
     private static final PingResponseBean NOOP;
     private static final Set<String> EMPTY_GROUPS;
-    //private static final long AGENT_COUNT_CACHE_TTL = 5 * 1000;
+    private static final String PINTEREST_MAIN_AWS_ACCOUNT = "998131032990";
+    private static final String PROVISION_LATENCY_TIMER_NAME =
+            CUSTOM_NAME_PREFIX + "teletraan.%s.provision_latency";
 
     static {
         NOOP = new PingResponseBean();
@@ -89,11 +117,14 @@ public class PingHandler {
     private HostTagDAO hostTagDAO;
     private GroupDAO groupDAO;
     private DeployConstraintDAO deployConstraintDAO;
+    private CommonHandler commonHandler;
     private DataHandler dataHandler;
     private LoadingCache<String, BuildBean> buildCache;
     private LoadingCache<String, DeployBean> deployCache;
     private List<PingRequestValidator> validators;
     private Long agentCountCacheTtl;
+    private Long maxParallelThreshold;
+    private Set<String> accountAllowList;
 
     public PingHandler(ServiceContext serviceContext) {
         agentDAO = serviceContext.getAgentDAO();
@@ -110,28 +141,35 @@ public class PingHandler {
         scheduleDAO = serviceContext.getScheduleDAO();
         hostTagDAO = serviceContext.getHostTagDAO();
         deployConstraintDAO = serviceContext.getDeployConstraintDAO();
+        commonHandler = new CommonHandler(serviceContext);
         dataHandler = new DataHandler(serviceContext);
         validators = serviceContext.getPingRequestValidators();
         agentCountCacheTtl = serviceContext.getAgentCountCacheTtl();
+        maxParallelThreshold = serviceContext.getMaxParallelThreshold();
+        accountAllowList = serviceContext.getAccountAllowList();
 
         if (serviceContext.isBuildCacheEnabled()) {
-            buildCache = CacheBuilder.from(serviceContext.getBuildCacheSpec().replace(";", ","))
-                    .build(new CacheLoader<String, BuildBean>() {
-                        @Override
-                        public BuildBean load(String buildId) throws Exception {
-                            return buildDAO.getById(buildId);
-                        }
-                    });
+            buildCache =
+                    CacheBuilder.from(serviceContext.getBuildCacheSpec().replace(";", ","))
+                            .build(
+                                    new CacheLoader<String, BuildBean>() {
+                                        @Override
+                                        public BuildBean load(String buildId) throws Exception {
+                                            return buildDAO.getById(buildId);
+                                        }
+                                    });
         }
 
         if (serviceContext.isDeployCacheEnabled()) {
-            deployCache = CacheBuilder.from(serviceContext.getDeployCacheSpec().replace(";", ","))
-                    .build(new CacheLoader<String, DeployBean>() {
-                        @Override
-                        public DeployBean load(String deployId) throws Exception {
-                            return deployDAO.getById(deployId);
-                        }
-                    });
+            deployCache =
+                    CacheBuilder.from(serviceContext.getDeployCacheSpec().replace(";", ","))
+                            .build(
+                                    new CacheLoader<String, DeployBean>() {
+                                        @Override
+                                        public DeployBean load(String deployId) throws Exception {
+                                            return deployDAO.getById(deployId);
+                                        }
+                                    });
         }
     }
 
@@ -141,18 +179,113 @@ public class PingHandler {
     }
 
     // Keep host and group membership in sync
-    void updateHosts(String hostName, String hostIp, String hostId, Set<String> groups) throws Exception {
-        hostDAO.insertOrUpdate(hostName, hostIp, hostId, HostState.ACTIVE.toString(), groups);
+    void updateHosts(
+            String hostName, String hostIp, String hostId, Set<String> groups, String accountId)
+            throws Exception {
+        Set<String> recordedGroups = new HashSet<String>(hostDAO.getGroupNamesByHost(hostName));
+        String recordedAccountId = hostDAO.getAccountIdByHost(hostName);
 
-        List<String> recordedGroups = hostDAO.getGroupNamesByHost(hostName);
-        for (String recordedGroup : recordedGroups) {
-            if (!groups.contains(recordedGroup)) {
-                LOG.warn("Remove host {} from group {}", hostName, recordedGroup);
-                this.hostDAO.removeHostFromGroup(hostId, recordedGroup);
+        Set<String> groupsToAdd = new HashSet<String>();
+        // Insert if not recorded
+        for (String group : groups) {
+            if (!recordedGroups.contains(group)) {
+                LOG.info("Insert host {} to group {} mapping", hostName, group);
+                groupsToAdd.add(group);
             }
         }
 
+        // if it is the main account, don't update it to avoid huge updates for existing hosts
+        // only update sub account id for existing hosts
+        if (groupsToAdd.size() > 0
+                || accountId != null
+                        && !accountId.equals(PINTEREST_MAIN_AWS_ACCOUNT)
+                        && !accountId.equals(recordedAccountId)) {
+            hostDAO.insertOrUpdate(
+                    hostName, hostIp, hostId, HostState.ACTIVE.toString(), groups, accountId);
+        }
 
+        // Remove if not reported
+        for (String recordedGroup : recordedGroups) {
+            if (!groups.contains(recordedGroup)) {
+                LOG.warn("Remove host {} to group {} mapping", hostName, recordedGroup);
+                this.hostDAO.removeHostFromGroup(hostId, recordedGroup);
+            }
+        }
+    }
+
+    void updateHostStatus(
+            String hostId,
+            String hostName,
+            String hostIp,
+            String agentVersion,
+            String asg,
+            NormandieStatus normandieStatus,
+            KnoxStatus knoxStatus)
+            throws Exception {
+        HostAgentBean existingBean = hostAgentDAO.getHostById(hostId);
+        long currentTime = System.currentTimeMillis();
+
+        if (existingBean == null) {
+            // First ping - insert a new row
+            HostAgentBean hostAgentBean = new HostAgentBean();
+            hostAgentBean.setHost_id(hostId);
+            hostAgentBean.setCreate_date(currentTime);
+            hostAgentBean.setHost_name(hostName);
+            hostAgentBean.setIp(hostIp);
+            hostAgentBean.setLast_update(currentTime);
+            hostAgentBean.setAgent_version(agentVersion);
+            hostAgentBean.setAuto_scaling_group(asg);
+            hostAgentBean.setNormandie_status(normandieStatus);
+            hostAgentBean.setKnox_status(knoxStatus);
+            hostAgentDAO.insert(hostAgentBean);
+            emitProvisionLatency(currentTime, hostId, asg);
+        } else if (hasFieldChanged(
+                existingBean, hostName, hostIp, agentVersion, asg, normandieStatus, knoxStatus)) {
+            // Fields changed - do a full update
+            existingBean.setHost_name(hostName);
+            existingBean.setIp(hostIp);
+            existingBean.setLast_update(currentTime);
+            existingBean.setAgent_version(agentVersion);
+            existingBean.setAuto_scaling_group(asg);
+            existingBean.setNormandie_status(normandieStatus);
+            existingBean.setKnox_status(knoxStatus);
+            hostAgentDAO.update(hostId, existingBean);
+        } else {
+            // Nothing changed except the heartbeat timestamp - lightweight single-column update
+            hostAgentDAO.touchLastUpdate(hostId, currentTime);
+        }
+    }
+
+    static boolean hasFieldChanged(
+            HostAgentBean existing,
+            String hostName,
+            String hostIp,
+            String agentVersion,
+            String asg,
+            NormandieStatus normandieStatus,
+            KnoxStatus knoxStatus) {
+        return !Objects.equals(existing.getHost_name(), hostName)
+                || !Objects.equals(existing.getIp(), hostIp)
+                || !Objects.equals(existing.getAgent_version(), agentVersion)
+                || !Objects.equals(existing.getAuto_scaling_group(), asg)
+                || !Objects.equals(existing.getNormandie_status(), normandieStatus)
+                || !Objects.equals(existing.getKnox_status(), knoxStatus);
+    }
+
+    void emitProvisionLatency(long currentTime, String hostId, String asg) {
+        try {
+            List<HostBean> hosts = hostDAO.getHostsByHostId(hostId);
+            if (hosts.size() == 0) {
+                LOG.warn("No host found for hostId {}, skip", hostId);
+                return;
+            }
+            String timerName = String.format(PROVISION_LATENCY_TIMER_NAME, asg);
+            HostBean initialHost = hosts.get(0);
+            long provisionLatency = currentTime - initialHost.getCreate_date();
+            Metrics.timer(timerName).record(Duration.ofMillis(provisionLatency));
+        } catch (Exception e) {
+            LOG.warn("Failed to emit infra latency for " + hostId, e);
+        }
     }
 
     void deleteAgentSafely(String hostId, String envId) {
@@ -174,7 +307,8 @@ public class PingHandler {
                     if (errorMessage == null) {
                         errorMessage = "";
                     }
-                    AgentErrorBean agentErrorBean = agentErrorDAO.get(bean.getHost_name(), bean.getEnv_id());
+                    AgentErrorBean agentErrorBean =
+                            agentErrorDAO.get(bean.getHost_name(), bean.getEnv_id());
                     if (agentErrorBean == null) {
                         agentErrorBean = new AgentErrorBean();
                         agentErrorBean.setHost_id(bean.getHost_id());
@@ -185,7 +319,8 @@ public class PingHandler {
                     } else {
                         if (!agentErrorBean.getError_msg().equals(errorMessage)) {
                             agentErrorBean.setError_msg(errorMessage);
-                            agentErrorDAO.update(bean.getHost_name(), bean.getEnv_id(), agentErrorBean);
+                            agentErrorDAO.update(
+                                    bean.getHost_name(), bean.getEnv_id(), agentErrorBean);
                         }
                     }
                 }
@@ -203,7 +338,10 @@ public class PingHandler {
         }
         long now = System.currentTimeMillis();
         if (now - agentCountBean.getLast_refresh() > agentCountCacheTtl) {
-            LOG.debug("Expired agent count for env {}, last refresh {}", envId, agentCountBean.getLast_refresh());
+            LOG.debug(
+                    "Expired agent count for env {}, last refresh {}",
+                    envId,
+                    agentCountBean.getLast_refresh());
             return false;
         }
         LOG.debug("Valid agent count for env {}", envId);
@@ -211,107 +349,179 @@ public class PingHandler {
     }
 
     /**
-     * Check if we can start deploy on host for certain env. We should not allow
-     * more than parallelThreshold hosts in install in the same time
+     * Check if we can start deploy on host for certain env. We should not allow more than
+     * parallelThreshold hosts in install in the same time
      */
     boolean canDeploy(EnvironBean envBean, String host, AgentBean agentBean) throws Exception {
         // first deploy should always proceed
         if (agentBean.getFirst_deploy()) {
             agentDAO.insertOrUpdate(agentBean);
-            LOG.debug("First deploy for env {}/{}, update and proceed on host {}", envBean.getEnv_name(), envBean.getStage_name(), host);
+            LOG.debug(
+                    "First deploy for env {}/{}, update and proceed on host {}",
+                    envBean.getEnv_name(),
+                    envBean.getStage_name(),
+                    host);
             return true;
         }
 
-        // TODO use ecache to optimize
         // Make sure we do not exceed allowed number of concurrent active deploying agent
         String envId = envBean.getEnv_id();
-        AgentCountBean agentCountBean = agentCountDAO.get(envId);
-        long totalNonFirstDeployAgents = (isAgentCountValid(envId, agentCountBean) == true) ? agentCountBean.getExisting_count() : agentDAO.countNonFirstDeployingAgent(envId);
-        long parallelThreshold = getFinalMaxParallelCount(envBean, totalNonFirstDeployAgents);
 
-        try {
-            //Note: This count already excludes first deploy agents, includes agents in STOP state
-            long totalDeployingAgents = (isAgentCountValid(envId, agentCountBean) == true) ? agentCountBean.getActive_count() : agentDAO.countDeployingAgent(envId);
-            if (totalDeployingAgents >= parallelThreshold) {
-                LOG.debug("There are currently {} agent is actively deploying for env {}, host {} will have to wait for its turn.", totalDeployingAgents, envId, host);
+        /*
+         * Fast path: a fresh agent count that already reports the env at capacity lets us
+         * reject without taking the lock and without recounting. On large stages most hosts
+         * are queued behind the threshold, so this is the common case.
+         */
+        AgentCountBean cachedCount = agentCountDAO.get(envId);
+        if (isAgentCountValid(envId, cachedCount)) {
+            long cachedThreshold =
+                    PingHandler.calculateParallelThreshold(
+                            envBean, cachedCount.getExisting_count(), this.maxParallelThreshold);
+            if (cachedCount.getActive_count() >= cachedThreshold) {
+                LOG.debug(
+                        "Env {}: active agents {}, parallel threshold {}. host {} will wait for deploy",
+                        envId,
+                        cachedCount.getActive_count(),
+                        cachedThreshold,
+                        host);
                 return false;
             }
-        } catch (Exception e) {
-            LOG.warn("Failed to check if can deploy or not for env = {}, host = {}, exception = {}, return false.", envId, host, e.toString());
-            return false;
         }
 
         // Make sure we also follow the schedule if specified
         if (!canDeploywithSchedule(envBean)) {
-            LOG.debug("Env {} schedule does not allow host {} to proceed.", envId, host);
+            LOG.debug("Env {}: schedule does not allow host {} to proceed.", envId, host);
             return false;
         }
 
         // Make sure we also follow the deploy constraint if specified
         if (!canDeployWithConstraint(agentBean.getHost_id(), envBean)) {
-            LOG.debug("Env {} deploy constraint does not allow host {} to proceed.", envId, host);
+            LOG.debug("Env {}: deploy constraint does not allow host {} to proceed.", envId, host);
             return false;
         }
 
-        // Looks like we can proceed with deploy, but let us double check with lock, and
-        // Update table to occupy one seat if condition still hold
+        /*
+         * Recounting is expensive: two COUNT(*) over every agent row of the env. Take the
+         * lock before recounting rather than after, so at most one ping per env pays for it
+         * while the cache is expired. Pings that lose the lock defer to their next cycle
+         * instead of duplicating the scans.
+         */
         String deployLockName = String.format("DEPLOY-%s", envId);
         Connection connection = utilDAO.getLock(deployLockName);
-        if (connection != null) {
-            LOG.info("Successfully get lock on {}", deployLockName);
-            try {
-                LOG.debug("Got lock on behavor of host {} for env {}, verify active agents", host, envId);
-                long totalActiveAgents = (isAgentCountValid(envId, agentCountBean) == true) ? agentCountBean.getActive_count() : agentDAO.countDeployingAgent(envId);
-                if (totalActiveAgents >= parallelThreshold) {
-                    LOG.debug("There are currently {} agents actively deploying for env {}, host {} will have to wait for its turn.", totalActiveAgents, envId, host);
-                    return false;
-                }
+        if (connection == null) {
+            LOG.debug(
+                    "Env {}: agent count is being refreshed by another host, host {} will wait for deploy.",
+                    envId,
+                    host);
+            return false;
+        }
+        LOG.info("Successfully get lock on {}", deployLockName);
+        try {
+            LOG.debug(
+                    "Got lock on behavor of host {} for env {}, verify active agents", host, envId);
+            AgentCountBean agentCountBean = agentCountDAO.get(envId);
+            boolean staleCount = !isAgentCountValid(envId, agentCountBean);
+            long totalNonFirstDeployAgents;
+            long totalActiveAgents;
+            if (staleCount) {
+                totalNonFirstDeployAgents = agentDAO.countNonFirstDeployingAgent(envId);
+                // Note: This count already excludes first deploy agents, includes agents in STOP
+                // state
+                totalActiveAgents = agentDAO.countDeployingAgent(envId);
+            } else {
+                totalNonFirstDeployAgents = agentCountBean.getExisting_count();
+                totalActiveAgents = agentCountBean.getActive_count();
+            }
+
+            long parallelThreshold =
+                    PingHandler.calculateParallelThreshold(
+                            envBean, totalNonFirstDeployAgents, this.maxParallelThreshold);
+
+            boolean canProceed = totalActiveAgents < parallelThreshold;
+            if (!canProceed) {
+                LOG.debug(
+                        "Env {}: active agents {}, parallel threshold {}. host {} will wait for deploy",
+                        envId,
+                        totalActiveAgents,
+                        parallelThreshold,
+                        host);
+            } else if (!canDeploywithSchedule(envBean)) {
                 // Make sure again we also follow the schedule if specified
-                if (!canDeploywithSchedule(envBean)) {
-                    LOG.debug("Env {} schedule does not allow host {} to proceed.", envId, host);
-                    return false;
-                }
-
-
+                LOG.debug("Env {}: schedule does not allow host {} to proceed.", envId, host);
+                canProceed = false;
+            } else if (!canDeployWithConstraint(agentBean.getHost_id(), envBean)) {
                 // Make sure we also follow the deploy constraint if specified
-                if (!canDeployWithConstraint(agentBean.getHost_id(), envBean)) {
-                    LOG.debug("Env {} deploy constraint does not allow host {} to proceed.", envId, host);
-                    return false;
-                }
+                LOG.debug(
+                        "Env {}: deploy constraint does not allow host {} to proceed.",
+                        envId,
+                        host);
+                canProceed = false;
+            }
 
+            /*
+             * Persist a recount even when this host is not admitted. Otherwise nothing writes
+             * the cache while the env sits at capacity, and the expired window lasts for the
+             * rest of the deploy instead of a single ttl.
+             */
+            if (staleCount || canProceed) {
                 if (agentCountBean == null) {
                     agentCountBean = new AgentCountBean();
                     agentCountBean.setEnv_id(envId);
                 }
                 agentCountBean.setExisting_count(totalNonFirstDeployAgents);
-                agentCountBean.setActive_count(totalActiveAgents + 1);
+                agentCountBean.setActive_count(
+                        canProceed ? totalActiveAgents + 1 : totalActiveAgents);
                 agentCountBean.setDeploy_id(agentBean.getDeploy_id());
-                // we invalidate cache after ttl.
-                if (isAgentCountValid(envId, agentCountBean) == false) {
-                    long now = System.currentTimeMillis();
-                    agentCountBean.setLast_refresh(now);
+                /*
+                 * active_count is only ever incremented, so it drifts above the real value
+                 * until the ttl forces a recount. Extend the ttl on a recount only, otherwise
+                 * a continuously busy env would never resync.
+                 */
+                if (staleCount) {
+                    agentCountBean.setLast_refresh(System.currentTimeMillis());
                 }
-                /* Typically, should update agentCount and agent in transaction, 
-                 * however, treating agentCount as cache w/ ttl and 
+                /* Typically, should update agentCount and agent in transaction,
+                 * however, treating agentCount as cache w/ ttl and
                  * make sure we update count first and then agent state.
                  */
-                LOG.debug("updating count for envId {}, existing_count {}, active_count {}, last_refresh {}, ttl {} ms",
-                        envId, agentCountBean.getExisting_count(), agentCountBean.getActive_count(), agentCountBean.getLast_refresh(), agentCountCacheTtl);
+                LOG.debug(
+                        "updating count for envId {}, existing_count {}, active_count {}, last_refresh {}, ttl {} ms",
+                        envId,
+                        agentCountBean.getExisting_count(),
+                        agentCountBean.getActive_count(),
+                        agentCountBean.getLast_refresh(),
+                        agentCountCacheTtl);
                 agentCountDAO.insertOrUpdate(agentCountBean);
-                agentDAO.insertOrUpdate(agentBean);
-                LOG.debug("There are currently only {} agent actively deploying for env {}, update and proceed on host {}.", totalActiveAgents, envId, host);
-                return true;
-            } catch (Exception e) {
-                LOG.warn("Failed to check if can deploy or not for env = {}, host = {}, exception = {}, return false.", envId, host, e.toString());
-                return false;
-            } finally {
-                utilDAO.releaseLock(deployLockName, connection);
-                LOG.info("Successfully released lock on {}", deployLockName);
             }
-        } else {
-            LOG.warn("Failed to grab PARALLEL_LOCK for env = {}, host = {}, return false.", envId, host);
+
+            if (!canProceed) {
+                return false;
+            }
+            agentDAO.insertOrUpdate(agentBean);
+            LOG.debug(
+                    "There are currently only {} agent actively deploying for env {}, update and proceed on host {}.",
+                    totalActiveAgents,
+                    envId,
+                    host);
+            return true;
+        } catch (Exception e) {
+            LOG.warn(
+                    "Env {} host {}: Failed to check if can deploy or not, exception = {}",
+                    envId,
+                    host,
+                    e.toString());
             return false;
+        } finally {
+            utilDAO.releaseLock(deployLockName, connection);
+            LOG.info("Successfully released lock on {}", deployLockName);
         }
+    }
+
+    public static long calculateParallelThreshold(
+            EnvironBean envBean, long totalNonFirstDeployAgents, long maxParallelThreshold)
+            throws Exception {
+        return Math.min(
+                maxParallelThreshold, getFinalMaxParallelCount(envBean, totalNonFirstDeployAgents));
     }
 
     boolean canDeployWithConstraint(String hostId, EnvironBean envBean) throws Exception {
@@ -322,54 +532,110 @@ public class PingHandler {
             return true;
         }
         try {
-            LOG.info("DeployWithConstraint env {}: verify active agents for host {} constraint {}", envId, hostId, constraintId);
+            LOG.info(
+                    "DeployWithConstraint env {}: verify active agents for host {} constraint {}",
+                    envId,
+                    hostId,
+                    constraintId);
 
             DeployConstraintBean deployConstraintBean = deployConstraintDAO.getById(constraintId);
             String tagName = deployConstraintBean.getConstraint_key();
             HostTagBean hostTagBean = hostTagDAO.get(hostId, tagName);
             if (deployConstraintBean.getState() != TagSyncState.FINISHED) {
                 // tag sync state is NOT FINISHED, means not ready for deploy
-                LOG.info("DeployWithConstraint env {}: tag sync state is {} , waiting for tag sync state to be FINISHED",
-                    envId, deployConstraintBean.getState());
+                LOG.info(
+                        "DeployWithConstraint env {}: tag sync state is {} , waiting for tag sync state to be FINISHED",
+                        envId,
+                        deployConstraintBean.getState());
                 return false;
             } else {
                 // tag sync state is FINISHED
                 if (hostTagBean == null) {
                     // but host tag is MISSING
-                    LOG.info("DeployWithConstraint env {}: could not find host {} with tagName {}", envId, hostId, tagName);
+                    LOG.info(
+                            "DeployWithConstraint env {}: could not find host {} with tagName {}",
+                            envId,
+                            hostId,
+                            tagName);
                     return false;
                 }
             }
             String tagValue = hostTagBean.getTag_value();
             long maxParallelWithHostTag = deployConstraintBean.getMax_parallel();
-            long totalActiveAgentsWithHostTag = agentDAO.countDeployingAgentWithHostTag(envBean.getEnv_id(), tagName, tagValue);
-            LOG.info("DeployWithConstraint env {} with tag {}:{} : host {} waiting for deploy, current {} deploying hosts",
-                envId, tagName, tagValue, hostId, totalActiveAgentsWithHostTag);
+            long totalActiveAgentsWithHostTag =
+                    agentDAO.countDeployingAgentWithHostTag(envBean.getEnv_id(), tagName, tagValue);
+            LOG.info(
+                    "DeployWithConstraint env {} with tag {}:{} : host {} waiting for deploy, current {} deploying hosts",
+                    envId,
+                    tagName,
+                    tagValue,
+                    hostId,
+                    totalActiveAgentsWithHostTag);
             if (totalActiveAgentsWithHostTag >= maxParallelWithHostTag) {
-                LOG.info("DeployWithConstraint env {} with tag {}:{} : host {} can not deploy, {} already exceed {} for constraint = {}, return false",
-                    envId, tagName, tagValue, hostId, totalActiveAgentsWithHostTag, maxParallelWithHostTag, deployConstraintBean.toString());
+                LOG.info(
+                        "DeployWithConstraint env {} with tag {}:{} : host {} can not deploy, {} already exceed {} for constraint = {}, return false",
+                        envId,
+                        tagName,
+                        tagValue,
+                        hostId,
+                        totalActiveAgentsWithHostTag,
+                        maxParallelWithHostTag,
+                        deployConstraintBean);
                 return false;
             }
-            if(deployConstraintBean.getConstraint_type() == DeployConstraintType.GROUP_BY_GROUP) {
-                // if it is GROUP_BY_GROUP deploy, needs to check pre-requisite tags when pre-requisite tag hosts are all done, then it becomes its turn
-                List<String> prerequisiteTagValues = hostTagDAO.getAllPrerequisiteTagValuesByEnvIdAndTagName(envBean.getEnv_id(), tagName, tagValue);
-                if(prerequisiteTagValues!= null && prerequisiteTagValues.size() > 0) {
-                    // if there is any pre-requisite tag, the hosts tagged by this pre-requisite tag should deploy first
-                    long totalExistingHostsWithPrerequisiteTags = hostTagDAO.countHostsByEnvIdAndTags(envBean.getEnv_id(), tagName, prerequisiteTagValues);
-                    long totalFinishedAgentsWithPrerequisiteTags = agentDAO.countFinishedAgentsByDeployWithHostTags(envBean.getEnv_id(), envBean.getDeploy_id(), tagName, prerequisiteTagValues);
-                    if(totalFinishedAgentsWithPrerequisiteTags < totalExistingHostsWithPrerequisiteTags) {
-                        LOG.info("DeployWithConstraint env {} with tag {}:{} : prerequisite tags {} has not finish: finished {} < existing {}, host {} can not deploy.",
-                            envId, tagName, tagValue, prerequisiteTagValues, totalFinishedAgentsWithPrerequisiteTags, totalExistingHostsWithPrerequisiteTags, hostId);
+            if (deployConstraintBean.getConstraint_type() == DeployConstraintType.GROUP_BY_GROUP) {
+                // if it is GROUP_BY_GROUP deploy, needs to check pre-requisite tags when
+                // pre-requisite tag hosts are all done, then it becomes its turn
+                List<String> prerequisiteTagValues =
+                        hostTagDAO.getAllPrerequisiteTagValuesByEnvIdAndTagName(
+                                envBean.getEnv_id(), tagName, tagValue);
+                if (prerequisiteTagValues != null && !prerequisiteTagValues.isEmpty()) {
+                    // if there is any pre-requisite tag, the hosts tagged by this pre-requisite tag
+                    // should deploy first
+                    long totalExistingHostsWithPrerequisiteTags =
+                            hostTagDAO.countHostsByEnvIdAndTags(
+                                    envBean.getEnv_id(), tagName, prerequisiteTagValues);
+                    long totalFinishedAgentsWithPrerequisiteTags =
+                            agentDAO.countFinishedAgentsByDeployWithHostTags(
+                                    envBean.getEnv_id(),
+                                    envBean.getDeploy_id(),
+                                    tagName,
+                                    prerequisiteTagValues);
+                    if (totalFinishedAgentsWithPrerequisiteTags
+                            < totalExistingHostsWithPrerequisiteTags) {
+                        LOG.info(
+                                "DeployWithConstraint env {} with tag {}:{} : prerequisite tags {} has not finish: finished {} < existing {}, host {} can not deploy.",
+                                envId,
+                                tagName,
+                                tagValue,
+                                prerequisiteTagValues,
+                                totalFinishedAgentsWithPrerequisiteTags,
+                                totalExistingHostsWithPrerequisiteTags,
+                                hostId);
                         return false;
                     }
                 } else {
-                    LOG.info("DeployWithConstraint env {} with tag {}:{} : no prerequisite, {} is the starting point", envId, tagName, tagValue, tagValue);
+                    LOG.info(
+                            "DeployWithConstraint env {} with tag {}:{} : no prerequisite, {} is the starting point",
+                            envId,
+                            tagName,
+                            tagValue,
+                            tagValue);
                 }
             }
-            LOG.info("DeployWithConstraint env {} with tag {}:{} : host {} can deploy", envId, tagName, tagValue, hostId);
+            LOG.info(
+                    "DeployWithConstraint env {} with tag {}:{} : host {} can deploy",
+                    envId,
+                    tagName,
+                    tagValue,
+                    hostId);
             return true;
         } catch (Exception e) {
-            LOG.error(String.format("DeployWithConstraint env %s, failed to check if can deploy or not for host = %s for constraint %s", envId, hostId, constraintId), e);
+            LOG.error(
+                    String.format(
+                            "DeployWithConstraint env %s, failed to check if can deploy or not for host = %s for constraint %s",
+                            envId, hostId, constraintId),
+                    e);
             return false;
         }
     }
@@ -384,46 +650,116 @@ public class PingHandler {
         String hostNumbers = schedule.getHost_numbers();
         Integer currentSession = schedule.getCurrent_session();
         String[] hostNumbersList = hostNumbers.split(",");
+        String envId = env.getEnv_id();
 
         if (schedule.getState() == ScheduleState.COOLING_DOWN) {
-            LOG.debug("Env {} is currently cooling down. Host {} will wait until the cooling down period is over.", env.getEnv_id());
+            LOG.debug(
+                    "Env {} is currently cooling down. Hosts will wait until the cooling down period is over.",
+                    envId);
             return false;
         } else {
-            int totalHosts = 0;
-            for (int i = 0; i < currentSession; i++) {
-                totalHosts += Integer.parseInt(hostNumbersList[i]);
-            }
+            long totalHosts =
+                    commonHandler.getNumHostsInSession(currentSession, hostNumbersList, envId);
+
             // if deployed max amount
-            if (agentDAO.countAgentsByDeploy(env.getDeploy_id()) < totalHosts ||
-                schedule.getState() == ScheduleState.FINAL || schedule.getState() == ScheduleState.NOT_STARTED) {
-                LOG.debug("{} hosts have been deployed, still can deploy in session {}", totalHosts, currentSession);
+            if (agentDAO.countAgentsByDeploy(env.getDeploy_id()) < totalHosts
+                    || schedule.getState() == ScheduleState.FINAL
+                    || schedule.getState() == ScheduleState.NOT_STARTED) {
+                LOG.debug(
+                        "{} hosts have been deployed, still can deploy in session {}",
+                        totalHosts,
+                        currentSession);
                 return true;
             } else {
-                LOG.debug("{} hosts have been deployed, cannot deploy anymore in session {}", totalHosts, currentSession);
+                LOG.debug(
+                        "{} hosts have been deployed, cannot deploy anymore in session {}",
+                        totalHosts,
+                        currentSession);
                 return false;
             }
         }
     }
 
-    // Host env will override group env, if there is conflicts, and convert to Map
-    Map<String, EnvironBean> convergeEnvs(String host, List<EnvironBean> hostEnvs, List<EnvironBean> groupEnvs) {
+    /**
+     * Converge the envs reachable via host capacity, reported-group capacity and sharded-group
+     * capacity into a single env_id-keyed map, applying priority 1. host capacity 2. group capacity
+     * 3. shard capacity
+     *
+     * <p>When two envs are both assigned to different groups, the higher-priority tier wins and the
+     * lower-priority entry is dropped. Conflicts within a single tier still fall through to {@link
+     * #mergeEnvs}, which keeps the first-seen env and logs a warning.
+     */
+    Map<String, EnvironBean> convergeEnvs(
+            String host,
+            List<EnvironBean> hostEnvs,
+            List<EnvironBean> reportedGroupEnvs,
+            List<EnvironBean> shardedGroupEnvs) {
         Map<String, EnvironBean> hostEnvMap = mergeEnvs(host, hostEnvs);
-        Map<String, EnvironBean> groupEnvMap = mergeEnvs(host, groupEnvs);
+        Map<String, EnvironBean> reportedGroupEnvMap = mergeEnvs(host, reportedGroupEnvs);
+        Map<String, EnvironBean> shardedGroupEnvMap = mergeEnvs(host, shardedGroupEnvs);
+
         Map<String, EnvironBean> envs = new HashMap<>();
+
+        // Tier 1: host capacity always wins over any group-level match.
         for (Map.Entry<String, EnvironBean> entry : hostEnvMap.entrySet()) {
             EnvironBean envBean = entry.getValue();
-            envs.put(envBean.getEnv_id(), envBean);
             String envName = entry.getKey();
-            if (groupEnvMap.containsKey(envName)) {
-                LOG.debug("Found conflict env for host {}: {}/{} and {}/{}, choose the former since it is associated with host directly.",
-                        host, envName, envBean.getStage_name(), envName, groupEnvMap.get(envName).getStage_name());
-                groupEnvMap.remove(envName);
+            envs.put(envBean.getEnv_id(), envBean);
+            EnvironBean duplicate = reportedGroupEnvMap.remove(envName);
+            if (duplicate != null) {
+                LOG.debug(
+                        "Found conflict env for host {}: {}/{} and {}/{}, choose the former since it is associated with host directly.",
+                        host,
+                        envName,
+                        envBean.getStage_name(),
+                        envName,
+                        duplicate.getStage_name());
+            }
+            duplicate = shardedGroupEnvMap.remove(envName);
+            if (duplicate != null) {
+                LOG.debug(
+                        "Found conflict env for host {}: {}/{} and {}/{}, choose the former since it is associated with host directly.",
+                        host,
+                        envName,
+                        envBean.getStage_name(),
+                        envName,
+                        duplicate.getStage_name());
             }
         }
-        for (Map.Entry<String, EnvironBean> entry : groupEnvMap.entrySet()) {
+
+        // Tier 2: reported-group matches beat sharded-group matches for the same env_name.
+        // Allows switching sidecar groups
+        for (Map.Entry<String, EnvironBean> entry : reportedGroupEnvMap.entrySet()) {
+            EnvironBean envBean = entry.getValue();
+            String envName = entry.getKey();
+            envs.put(envBean.getEnv_id(), envBean);
+            EnvironBean duplicate = shardedGroupEnvMap.remove(envName);
+            if (duplicate != null) {
+                LOG.info(
+                        "Found conflict env for host {}: {}/{} and {}/{}, choose the former since it matches a reported group directly.",
+                        host,
+                        envName,
+                        envBean.getStage_name(),
+                        envName,
+                        duplicate.getStage_name());
+            }
+        }
+
+        // Tier 3: sharded (CMP) matches, lowest priority.
+        for (Map.Entry<String, EnvironBean> entry : shardedGroupEnvMap.entrySet()) {
             envs.put(entry.getValue().getEnv_id(), entry.getValue());
         }
         return envs;
+    }
+
+    /**
+     * @deprecated Prefer {@link #convergeEnvs(String, List, List, List)} which distinguishes
+     *     reported-group matches from server-synthesized sharded-group matches.
+     */
+    @Deprecated
+    Map<String, EnvironBean> convergeEnvs(
+            String host, List<EnvironBean> hostEnvs, List<EnvironBean> groupEnvs) {
+        return convergeEnvs(host, hostEnvs, groupEnvs, Collections.emptyList());
     }
 
     // Host env will override group env, if there is conflicts, and convert to Map
@@ -436,8 +772,15 @@ public class PingHandler {
             String envName = envBean.getEnv_name();
             if (envs.containsKey(envName)) {
                 // In theory, such conflict should've already been avoid by frontend/UI etc.
-                LOG.error("Found conflict env for host {}: {}/{} and {}/{}, will ignore {}/{} for now. Please correct the wrong deploy configure.",
-                        host, envName, envBean.getStage_name(), envName, envs.get(envName).getStage_name(), envName, envs.get(envName).getStage_name());
+                LOG.warn(
+                        "Found conflict env for host {}: {}/{} and {}/{}, will ignore {}/{} for now. Please correct the wrong deploy configure.",
+                        host,
+                        envName,
+                        envBean.getStage_name(),
+                        envName,
+                        envs.get(envName).getStage_name(),
+                        envName,
+                        envs.get(envName).getStage_name());
             } else {
                 envs.put(envName, envBean);
             }
@@ -471,7 +814,7 @@ public class PingHandler {
     PingRequestBean normalizePingRequest(PingRequestBean pingRequest) throws Exception {
         String hostId = pingRequest.getHostId();
         if (StringUtils.isEmpty(hostId)) {
-            LOG.error("Missing host id in request: ", pingRequest);
+            LOG.error("Missing host id in request: {}", pingRequest);
             throw new DeployInternalException("Missing host id in PingReqest");
         }
 
@@ -502,88 +845,205 @@ public class PingHandler {
         return envBean;
     }
 
-    private EnvType populateStageType(PingRequestBean pingRequest) throws Exception {
-        EnvType stageType = EnvType.PRODUCTION;
-        if (pingRequest.getStageType() != null) {
-            stageType = pingRequest.getStageType();
+    private EnvType stageTypeMapping(EnvType type) {
+        if (type == EnvType.DEV || type == EnvType.STAGING) {
+            return EnvType.LATEST;
         } else {
-            EnvironBean envBean = populateEnviron(pingRequest.getAutoscalingGroup());
+            return type;
+        }
+    }
+
+    private EnvType populateStageType(PingRequestBean pingRequest) throws Exception {
+        if (pingRequest.getStageType() != null) {
+            return pingRequest.getStageType();
+        }
+
+        EnvironBean envBean = populateEnviron(pingRequest.getAutoscalingGroup());
+        if (envBean != null && envBean.getStage_type() != EnvType.DEFAULT) {
+            return envBean.getStage_type();
+        }
+
+        // Search for stage type from groups like CMP,group
+        Set<String> groups = pingRequest.getGroups();
+        for (String group : groups) {
+            envBean = populateEnviron(group);
             if (envBean != null && envBean.getStage_type() != EnvType.DEFAULT) {
-                stageType = envBean.getStage_type();
+                return envBean.getStage_type();
             }
         }
-        return stageType;
+        return EnvType.PRODUCTION;
     }
-    
+
+    /**
+     * Buckets of group names used to look up {@code groups_and_envs}:
+     *
+     * <ul>
+     *   <li>{@code reported} - the group strings the agent actually sent in the ping.
+     *   <li>{@code sharded} - synthesized names of the form {@code <reported>-<stage>-<az>} that
+     *       the server adds on top of the reported set. If a sharded name happens to collide with a
+     *       reported one, it is dropped from {@code sharded} so {@code reported} stays the source
+     *       of truth.
+     * </ul>
+     *
+     * Matches against {@code reported} are treated as more specific than matches against {@code
+     * sharded} when resolving env conflicts (see {@link #convergeEnvs}).
+     */
+    static final class GroupBuckets {
+        final Set<String> reported;
+        final Set<String> sharded;
+
+        GroupBuckets(Set<String> reported, Set<String> sharded) {
+            this.reported = reported;
+            this.sharded = sharded;
+        }
+
+        Set<String> all() {
+            Set<String> union = new HashSet<>(reported.size() + sharded.size());
+            union.addAll(reported);
+            union.addAll(sharded);
+            return union;
+        }
+    }
+
     // Creates composite deploy group. size is limited by group_name size in hosts table.
     // TODO: Consider storing host <-> shard mapping separately.
-    private Set<String> shardGroups(PingRequestBean pingRequest) throws Exception {
+    GroupBuckets bucketGroups(PingRequestBean pingRequest) throws Exception {
+        Set<String> reported = new HashSet<>(pingRequest.getGroups());
+
         List<String> shards = new ArrayList<>();
         EnvType stageType = populateStageType(pingRequest);
+        // A tmp solution to map dev and staging to latest.
+        // This way sidecar deployments will work without sidecar owners to update their env/stage
+        // setup and spinnaker pipelines, which might take a long time.
+        stageType = stageTypeMapping(stageType);
         shards.add(stageType.toString().toLowerCase());
 
         String availabilityZone = pingRequest.getAvailabilityZone();
         if (availabilityZone != null) {
             shards.add(availabilityZone);
         }
-        Set<String> groups = new HashSet<>(pingRequest.getGroups());
-        if (shards.size() > 0) {
-            for (String group: pingRequest.getGroups()) {
-                String shardedGroup = group + "-" + String.join("-", shards);
-                LOG.info("Updating host {} with sharded group {}", pingRequest.getHostName(), shardedGroup);
-                groups.add(shardedGroup);
+
+        Set<String> sharded = new HashSet<>();
+        if (!shards.isEmpty()) {
+            String suffix = "-" + String.join("-", shards);
+            for (String group : reported) {
+                String shardedGroup = group + suffix;
+                LOG.info(
+                        "Updating host {} with sharded group {}",
+                        pingRequest.getHostName(),
+                        shardedGroup);
+                sharded.add(shardedGroup);
             }
         }
-        return groups;
+        // Reported wins if a reported group literally equals a sharded one.
+        sharded.removeAll(reported);
+        return new GroupBuckets(reported, sharded);
     }
 
     /**
-     * This is the core function to update agent status and compute deploy goal
+     * @deprecated Use {@link #bucketGroups(PingRequestBean)} and its {@link GroupBuckets#all()} for
+     *     persistence and the split sets for env lookup.
      */
-    public PingResult ping(PingRequestBean pingRequest) throws Exception {
+    @Deprecated
+    Set<String> shardGroups(PingRequestBean pingRequest) throws Exception {
+        return bucketGroups(pingRequest).all();
+    }
+
+    /** This is the core function to update agent status and compute deploy goal */
+    public PingResult ping(PingRequestBean pingRequest, boolean rate_limited) throws Exception {
         // handle empty or unexpected request fields
         pingRequest = normalizePingRequest(pingRequest);
 
         if (validators != null) {
             // validate requests
             for (PingRequestValidator validator : validators) {
-                validator.validate(pingRequest);
+                validator.validate(pingRequest, accountAllowList);
             }
         }
 
         String hostIp = pingRequest.getHostIp();
         String hostId = pingRequest.getHostId();
         String hostName = pingRequest.getHostName();
-        Set<String> groups = this.shardGroups(pingRequest);
+        String asg = pingRequest.getAutoscalingGroup();
+        GroupBuckets groupBuckets = this.bucketGroups(pingRequest);
+        // Union of reported + sharded groups, used for host <-> group membership and logging.
+        Set<String> groups = groupBuckets.all();
+        String accountId = pingRequest.getAccountId();
 
-        // always update the host table
-        this.updateHosts(hostName, hostIp, hostId, groups);
+        // go through ec2Tags
+        String ec2Tags = pingRequest.getEc2Tags();
+        LOG.debug("go through ec2 tags: {}", ec2Tags);
+        if (ec2Tags != null && LOG.isDebugEnabled()) {
+            ObjectMapper mapper = new ObjectMapper();
+            Map<String, String> tags = mapper.readValue(ec2Tags, Map.class);
+            for (Map.Entry<String, String> entry : tags.entrySet()) {
+                LOG.debug("key: {}, val: {}", entry.getKey(), entry.getValue());
+            }
+        }
 
-        //update agent version for host
-        String agent_version = pingRequest.getAgentVersion() != null ? pingRequest.getAgentVersion() : "UNKNOWN";
-        HostAgentBean hostAgentBean = new HostAgentBean();
-        hostAgentBean.setHost_Id(hostId);
-        hostAgentBean.setAgent_Version(agent_version);
-        hostAgentDAO.insert(hostAgentBean);
+        // update agent version for host
+        String agentVersion =
+                pingRequest.getAgentVersion() != null ? pingRequest.getAgentVersion() : "UNKNOWN";
+
+        NormandieStatus normandieStatus =
+                pingRequest.getNormandieStatus() != null
+                        ? pingRequest.getNormandieStatus()
+                        : NormandieStatus.UNKNOWN;
+        KnoxStatus knoxStatus =
+                pingRequest.getKnoxStatus() != null
+                        ? pingRequest.getKnoxStatus()
+                        : KnoxStatus.UNKNOWN;
+
+        this.updateHostStatus(
+                hostId, hostName, hostIp, agentVersion, asg, normandieStatus, knoxStatus);
+
+        // update the host <-> groups mapping
+        this.updateHosts(hostName, hostIp, hostId, groups, accountId);
 
         // Convert reports to map, keyed by envId
         Map<String, PingReportBean> reports = convertReports(pingRequest);
 
-        // Find all the appropriate environments for this host and these groups,
-        // The converged env map is keyed by envId
+        // Find all the appropriate environments for this host and these groups.
+        // Group lookups are split into two buckets so that matches against the
+        // agent-reported group names take priority over matches against the
+        // server-synthesized sharded group names (see convergeEnvs). The converged
+        // env map is keyed by envId.
         List<EnvironBean> hostEnvs = environDAO.getEnvsByHost(hostName);
-        List<EnvironBean> groupEnvs = environDAO.getEnvsByGroups(groups);
-        Map<String, EnvironBean> envs = convergeEnvs(hostName, hostEnvs, groupEnvs);
-        LOG.debug("Found the following envs {} associated with host {} and group {}.",
-            envs.keySet(), hostName, groups);
+        List<EnvironBean> reportedGroupEnvs =
+                groupBuckets.reported.isEmpty()
+                        ? Collections.emptyList()
+                        : environDAO.getEnvsByGroups(groupBuckets.reported);
+        List<EnvironBean> shardedGroupEnvs =
+                groupBuckets.sharded.isEmpty()
+                        ? Collections.emptyList()
+                        : environDAO.getEnvsByGroups(groupBuckets.sharded);
+        Map<String, EnvironBean> envs =
+                convergeEnvs(hostName, hostEnvs, reportedGroupEnvs, shardedGroupEnvs);
+        LOG.debug(
+                "Found the following envs {} associated with host {} and group {}.",
+                envs.keySet(),
+                hostName,
+                groups);
 
         // Find all agent records for this host, convert to envId based map
         List<AgentBean> agentBeans = agentDAO.getByHost(hostName);
-        Map<String, AgentBean> agents = convertAgentBeans(agentBeans); //database agent
+        Map<String, AgentBean> agents = convertAgentBeans(agentBeans); // database agent
 
         // Now we have all the relevant envs, reports and agents, let us do some
         // analysis & pick the potential install candidate and uninstall candidate
-        GoalAnalyst analyst = new GoalAnalyst(deployDAO, environDAO, hostName, hostId, envs, reports, agents);
+        GoalAnalyst analyst =
+                new GoalAnalyst(
+                        deployConstraintDAO,
+                        hostTagDAO,
+                        deployDAO,
+                        environDAO,
+                        hostDAO,
+                        hostName,
+                        hostId,
+                        envs,
+                        reports,
+                        agents,
+                        ec2Tags);
         analyst.analysis();
 
         PingResponseBean response = null;
@@ -596,30 +1056,67 @@ public class PingHandler {
                 AgentBean updateBean = installCandidate.updateBean;
                 EnvironBean env = installCandidate.env;
                 if (installCandidate.needWait) {
-                    LOG.debug("Checking if host {}, updateBean = {} can deploy", hostName, updateBean);
+                    LOG.debug(
+                            "Checking if host {}, updateBean = {}, rate_limited = {}, system_priority = {} can deploy",
+                            hostName,
+                            updateBean,
+                            rate_limited,
+                            env.getSystem_priority());
+                    // Request has hit LWM rate-limit. we already updated heartbeat.
+                    // Next, see if we can handle light-weight deploys, instead of completly
+                    // discarding request.
+                    // Idea is,
+                    // 1. we want to continue in-progress deploy.
+                    // 2. delay starting new deploy on the host(canDeploy call below is expensive
+                    // for services with system priority).
+                    // 3. allow any light weight deploys.
+                    // This can be removed once canDeploy is more scalable for large stages
+                    if (rate_limited == true && env.getSystem_priority() != null) {
+                        LOG.info(
+                                "Host {} ping rate limited, delay deploying env {}/{}",
+                                hostName,
+                                env.getEnv_name(),
+                                env.getStage_name());
+                        continue;
+                    }
                     if (canDeploy(env, hostName, updateBean)) {
-                        LOG.debug("Host {} can proceed to deploy, updateBean = {}", hostName, updateBean);
+                        LOG.debug(
+                                "Host {} can proceed to deploy, updateBean = {}",
+                                hostName,
+                                updateBean);
                         updateBeans.put(updateBean.getEnv_id(), updateBean);
                         response = generateInstallResponse(installCandidate);
                         break;
                     } else if (updateBean.getFirst_deploy()) {
-                        LOG.debug("Host {} needs to wait for first deploy of env {}",
-                            hostName, updateBean.getEnv_id());
-                            break;
+                        LOG.debug(
+                                "Host {} needs to wait for first deploy of env {}",
+                                hostName,
+                                updateBean.getEnv_id());
+                        break;
                     } else {
-                        LOG.debug("Host {} needs to wait for env {}. Try next env",
-                            hostName, updateBean.getEnv_id()); 
+                        LOG.debug(
+                                "Host {} needs to wait for env {}. Try next env",
+                                hostName,
+                                updateBean.getEnv_id());
                     }
                 } else {
-                    LOG.debug("Host {} is in the middle of deploy, no need to wait, updateBean = {}",
-                        hostName, updateBean);
+                    LOG.debug(
+                            "Host {} is in the middle of deploy, no need to wait, updateBean = {}",
+                            hostName,
+                            updateBean);
                     updateBeans.put(updateBean.getEnv_id(), updateBean);
                     response = generateInstallResponse(installCandidate);
                     break;
                 }
             }
         }
-
+        List<GoalAnalyst.UninstallCandidate> uninstallCandidates = analyst.getUninstallCandidates();
+        if (!uninstallCandidates.isEmpty()) {
+            for (GoalAnalyst.UninstallCandidate uninstallCandidate : uninstallCandidates) {
+                AgentBean updateBean = uninstallCandidate.updateBean;
+                updateBeans.put(updateBean.getEnv_id(), updateBean);
+            }
+        }
         // Delete deprecated agents if necessary
         List<String> needDeleteAgentIds = analyst.getNeedDeleteAgentEnvIds();
         for (String envId : needDeleteAgentIds) {
@@ -635,23 +1132,25 @@ public class PingHandler {
 
         if (response != null) {
             LOG.info("Return response {} for host {}.", response, hostName);
-            return new PingResult().withResponseBean(response)
-                .withInstallCandidates(installCandidates);
+            return new PingResult()
+                    .withResponseBean(response)
+                    .withInstallCandidates(installCandidates);
         }
 
-        List<GoalAnalyst.UninstallCandidate> uninstallCandidates = analyst.getUninstallCandidates();
         if (uninstallCandidates.isEmpty()) {
             LOG.info("Return NOOP for host {} ping, no install or uninstall candidates.", hostName);
-            return new PingResult().withResponseBean(NOOP)
-                .withUnInstallCandidates(uninstallCandidates);
+            return new PingResult()
+                    .withResponseBean(NOOP)
+                    .withUnInstallCandidates(uninstallCandidates);
         }
 
         // otherwise, we do uninstall
         GoalAnalyst.UninstallCandidate uninstallCandidate = uninstallCandidates.get(0);
         response = generateDeleteResponse(uninstallCandidate);
         LOG.info("Return uninstall response {} for host {}.", response, hostName);
-        return new PingResult().withResponseBean(response)
-            .withUnInstallCandidates(uninstallCandidates);
+        return new PingResult()
+                .withResponseBean(response)
+                .withUnInstallCandidates(uninstallCandidates);
     }
 
     // TODO need to refactor for different opCode
@@ -659,13 +1158,16 @@ public class PingHandler {
         return agentBean.getDeploy_stage() == StateMachines.getFirstStage();
     }
 
-    public PingResponseBean generateInstallResponse(GoalAnalyst.InstallCandidate installCandidate) throws Exception {
+    public PingResponseBean generateInstallResponse(GoalAnalyst.InstallCandidate installCandidate)
+            throws Exception {
         EnvironBean envBean = installCandidate.env;
         AgentBean updateBean = installCandidate.updateBean;
         PingReportBean report = installCandidate.report;
 
         PingResponseBean response = new PingResponseBean();
-        if (updateBean != null && updateBean.getState() == AgentState.STOP && updateBean.getDeploy_stage() == DeployStage.STOPPING) {
+        if (updateBean != null
+                && updateBean.getState() == AgentState.STOP
+                && updateBean.getDeploy_stage() == DeployStage.STOPPING) {
             response.setOpCode(OpCode.STOP);
         } else {
             response.setOpCode(StateMachines.DEPLOY_TYPE_OPCODE_MAP.get(envBean.getDeploy_type()));
@@ -675,7 +1177,8 @@ public class PingHandler {
         String deployId = envBean.getDeploy_id();
 
         if (report != null && report.getDeployAlias() != null) {
-            // we need to reverse deployId & deployAlias, see transformRollbackDeployId for more details
+            // we need to reverse deployId & deployAlias, see transformRollbackDeployId for more
+            // details
             goal.setDeployId(report.getDeployAlias());
             goal.setDeployAlias(deployId);
         } else {
@@ -686,9 +1189,12 @@ public class PingHandler {
         goal.setEnvId(envBean.getEnv_id());
         goal.setEnvName(envBean.getEnv_name());
         goal.setStageName(envBean.getStage_name());
+        LOG.debug("stage type: {}", envBean.getStage_type());
+        goal.setStageType(envBean.getStage_type());
         goal.setIsDocker(envBean.getIs_docker());
 
-        // TODO optimize the next stage here based on deploy ( some deploy does not have all the stages )
+        // TODO optimize the next stage here based on deploy ( some deploy does not have all the
+        // stages )
         DeployStage deployStage = updateBean.getDeploy_stage();
         goal.setDeployStage(deployStage);
         goal.setFirstDeploy(updateBean.getFirst_deploy());
@@ -709,8 +1215,15 @@ public class PingHandler {
             String scriptConfigId = envBean.getSc_config_id();
             if (scriptConfigId != null) {
                 Map<String, String> variables = dataHandler.getMapById(scriptConfigId);
-                goal.setScriptVariables(variables);
-                LOG.debug("Add script varibles {} to goal at {} stage", variables, updateBean.getDeploy_stage());
+                goal.setScriptVariables(variables != null ? variables : Collections.emptyMap());
+                LOG.debug(
+                        "Add script varibles {} to goal at {} stage",
+                        variables,
+                        updateBean.getDeploy_stage());
+            } else {
+                // Explicitly send empty map so the agent knows there are no script
+                // variables, rather than leaving it null (which means "not sent").
+                goal.setScriptVariables(Collections.emptyMap());
             }
         }
 
@@ -744,14 +1257,19 @@ public class PingHandler {
     }
 
     public void fillBuildForDeployGoal(DeployGoalBean goal) throws Exception {
-        DeployBean deployBean = deployCache == null ? deployDAO.getById(goal.getDeployId())
-                                : getFromCache(deployCache, goal.getDeployId());
-        BuildBean buildBean = buildCache == null ? buildDAO.getById(deployBean.getBuild_id())
-                               : getFromCache(buildCache, deployBean.getBuild_id());
+        DeployBean deployBean =
+                deployCache == null
+                        ? deployDAO.getById(goal.getDeployId())
+                        : getFromCache(deployCache, goal.getDeployId());
+        BuildBean buildBean =
+                buildCache == null
+                        ? buildDAO.getById(deployBean.getBuild_id())
+                        : getFromCache(buildCache, deployBean.getBuild_id());
         goal.setBuild(buildBean);
     }
 
-    PingResponseBean generateDeleteResponse(GoalAnalyst.UninstallCandidate candidate) throws Exception {
+    PingResponseBean generateDeleteResponse(GoalAnalyst.UninstallCandidate candidate)
+            throws Exception {
         PingResponseBean response = new PingResponseBean();
         response.setOpCode(OpCode.DELETE);
         DeployGoalBean goal = new DeployGoalBean();
@@ -761,6 +1279,7 @@ public class PingHandler {
         goal.setDeployStage(candidate.report.getDeployStage());
         goal.setEnvName(candidate.environ.getEnv_name());
         goal.setStageName(candidate.environ.getStage_name());
+        goal.setStageType(candidate.environ.getStage_type());
         goal.setFirstDeploy(false);
         response.setDeployGoal(goal);
         return response;
@@ -771,18 +1290,22 @@ public class PingHandler {
     }
 
     /**
-     * Get the parallel count for execution. There are two configs can have effect. The maxParallel that specifies
-     * how many hosts and maxParallelPercentage that specifies the percentage of the Hosts. In common cases, there
-     * should be only one of them be effective as the UI and Bean update clear the other (Set to 0) when you set one.
-     * The rules are simple:
-     * 1. If only one of them is set, use that.
-     * 2. If both of them are set, use the minimum value
+     * Get the parallel count for execution. There are two configs can have effect. The maxParallel
+     * that specifies how many hosts and maxParallelPercentage that specifies the percentage of the
+     * Hosts. In common cases, there should be only one of them be effective as the UI and Bean
+     * update clear the other (Set to 0) when you set one. The rules are simple:
+     *
+     * <p>1. If only one of them is set, use that.
+     *
+     * <p>2. If both of them are set, use the minimum value
+     *
      * @param environBean
      * @param totalHosts
      * @return The maximum parallel count the system respects
      * @throws Exception
      */
-    public final static int getFinalMaxParallelCount(EnvironBean environBean, long totalHosts) throws Exception {
+    public static final int getFinalMaxParallelCount(EnvironBean environBean, long totalHosts)
+            throws Exception {
 
         int ret = Constants.DEFAULT_MAX_PARALLEL_HOSTS;
         LOG.debug("Get final maximum parallel count for total capactiy {}", totalHosts);
@@ -791,29 +1314,37 @@ public class PingHandler {
 
         if (!numIsApplicable && percentageIsApplicable) {
             ret = (int) (totalHosts * environBean.getMax_parallel_pct() / 100);
-            LOG.debug("Max parallel count {} is decided by percentage solely. Percentage is {}",
+            LOG.debug(
+                    "Max parallel count {} is decided by percentage solely. Percentage is {}",
                     ret,
                     environBean.getMax_parallel_pct());
         } else if (!percentageIsApplicable && numIsApplicable) {
             ret = environBean.getMax_parallel();
             LOG.debug("Max parallel count {} is decided by number of host solely.", ret);
         } else if (numIsApplicable && percentageIsApplicable) {
-            ret = Math.min(environBean.getMax_parallel(),
-                    (int) (totalHosts * environBean.getMax_parallel_pct() / 100));
-            LOG.debug("Max parallel count {} is decided by combing host {} and percentage {}.",
-                    ret, environBean.getMax_parallel(), environBean.getMax_parallel_pct());
+            ret =
+                    Math.min(
+                            environBean.getMax_parallel(),
+                            (int) (totalHosts * environBean.getMax_parallel_pct() / 100));
+            LOG.debug(
+                    "Max parallel count {} is decided by combing host {} and percentage {}.",
+                    ret,
+                    environBean.getMax_parallel(),
+                    environBean.getMax_parallel_pct());
         }
 
-        //Ensure the value falls into the range making sense
+        // Ensure the value falls into the range making sense
         if (ret <= 0) {
-            LOG.warn("Unexpected ret value {}. Max parallel:{} Max parallel percentage:{} TotalHosts:{}",
+            LOG.warn(
+                    "Unexpected ret value {}. Max parallel:{} Max parallel percentage:{} TotalHosts:{}",
                     ret,
                     environBean.getMax_parallel(),
                     environBean.getMax_parallel_pct(),
                     totalHosts);
             ret = 1;
         } else if (ret > totalHosts) {
-            LOG.warn("Unexpected ret value {}. Max parallel:{} Max parallel percentage:{} TotalHosts:{}",
+            LOG.warn(
+                    "Unexpected ret value {}. Max parallel:{} Max parallel percentage:{} TotalHosts:{}",
                     ret,
                     environBean.getMax_parallel(),
                     environBean.getMax_parallel_pct(),

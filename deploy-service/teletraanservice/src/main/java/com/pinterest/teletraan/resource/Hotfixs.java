@@ -1,12 +1,12 @@
 /**
- * Copyright 2016 Pinterest, Inc.
+ * Copyright (c) 2016-2024 Pinterest, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *  
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *    
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,48 +21,44 @@ import com.pinterest.deployservice.common.CommonUtils;
 import com.pinterest.deployservice.dao.BuildDAO;
 import com.pinterest.deployservice.dao.DeployDAO;
 import com.pinterest.deployservice.dao.HotfixDAO;
-import com.pinterest.deployservice.scm.GithubManager;
-import com.pinterest.deployservice.scm.SourceControlManager;
 import com.pinterest.teletraan.TeletraanServiceContext;
-import com.pinterest.teletraan.exception.TeletaanInternalException;
-import com.pinterest.teletraan.security.Authorizer;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
+import com.pinterest.teletraan.universal.security.ResourceAuthZInfo;
+import com.pinterest.teletraan.universal.security.ResourceAuthZInfo.Location;
+import com.pinterest.teletraan.universal.security.bean.AuthZResource;
+import io.swagger.annotations.Api;
+import java.net.URI;
+import java.util.List;
+import javax.annotation.security.RolesAllowed;
 import javax.validation.Valid;
 import javax.ws.rs.*;
 import javax.ws.rs.core.*;
-import java.net.URI;
-import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+@RolesAllowed(TeletraanPrincipalRole.Names.READ)
 @Path("/v1/hotfixs")
+@Api(tags = "Hotfixs")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public class Hotfixs {
     private static final Logger LOG = LoggerFactory.getLogger(Hotfixs.class);
-    private final static int DEFAULT_TIME_OUT = 30; // minutes
-    private final static int DEFAULT_SIZE = 30;
+    private static final int DEFAULT_TIME_OUT = 30; // minutes
+    private static final int DEFAULT_SIZE = 30;
     private DeployDAO deployDAO;
     private BuildDAO buildDAO;
     private HotfixDAO hotfixDAO;
-    private SourceControlManager sourceControlManager;
-    private final Authorizer authorizer;
 
-    @Context
-    UriInfo uriInfo;
-
-    public Hotfixs(TeletraanServiceContext context) {
+    public Hotfixs(@Context TeletraanServiceContext context) {
         deployDAO = context.getDeployDAO();
         buildDAO = context.getBuildDAO();
         hotfixDAO = context.getHotfixDAO();
-        sourceControlManager = context.getSourceControlManager();
-        authorizer = context.getAuthorizer();
     }
 
     private HotfixBean getHotfixBean(String id) throws Exception {
         HotfixBean hotfixBean = hotfixDAO.getByHotfixId(id);
         if (hotfixBean == null) {
-            throw new TeletaanInternalException(Response.Status.NOT_FOUND, String.format("Hotfix %s does not exist.", id));
+            throw new WebApplicationException(
+                    String.format("Hotfix %s does not exist.", id), Response.Status.NOT_FOUND);
         }
         return hotfixBean;
     }
@@ -74,32 +70,38 @@ public class Hotfixs {
     }
 
     @GET
-    public List<HotfixBean> getAll(@QueryParam("envName") String envName,
-        @QueryParam("pageIndex") Optional<Integer> pageIndex,
-        @QueryParam("pageSize") Optional<Integer> pageSize) throws Exception {
+    public List<HotfixBean> getAll(
+            @QueryParam("envName") String envName,
+            @QueryParam("pageIndex") Optional<Integer> pageIndex,
+            @QueryParam("pageSize") Optional<Integer> pageSize)
+            throws Exception {
         return hotfixDAO.getHotfixes(envName, pageIndex.or(1), pageSize.or(DEFAULT_SIZE));
     }
 
     @PUT
     @Path("/{id : [a-zA-Z0-9\\-_]+}")
-    public void update(@Context SecurityContext sc, @PathParam("id") String id,
-        HotfixBean hotfixBean) throws Exception {
-        authorizer.authorize(sc, new Resource(Resource.ALL, Resource.Type.SYSTEM), Role.PUBLISHER);
+    @RolesAllowed(TeletraanPrincipalRole.Names.PUBLISHER)
+    @ResourceAuthZInfo(type = AuthZResource.Type.HOTFIX, idLocation = Location.PATH)
+    public void update(@PathParam("id") String id, HotfixBean hotfixBean) throws Exception {
         hotfixDAO.update(id, hotfixBean);
         LOG.info("Successfully updated hotfix {} with {}.", id, hotfixBean);
     }
 
     private String generateJobName(String repo) {
-        if (sourceControlManager.getType().equals(GithubManager.TYPE)) {
-            // Special case for Github to extract repo
-            repo = repo.split("/")[1];
+        String[] repoSplit = repo.split("/");
+        if (repoSplit.length > 1) {
+            // Special case for Github repo to extract repo name from org
+            repo = repoSplit[1];
         }
         return String.format("%s-hotfix-job", repo);
     }
 
     @POST
-    public Response create(@Context SecurityContext sc, @Valid HotfixBean hotfixBean) throws Exception {
-        authorizer.authorize(sc, new Resource(hotfixBean.getEnv_name(), Resource.Type.ENV), Role.OPERATOR);
+    @RolesAllowed(TeletraanPrincipalRole.Names.EXECUTE)
+    @ResourceAuthZInfo(type = AuthZResource.Type.HOTFIX, idLocation = Location.BODY)
+    public Response create(
+            @Context SecurityContext sc, @Context UriInfo uriInfo, @Valid HotfixBean hotfixBean)
+            throws Exception {
         String hotfixId = CommonUtils.getBase64UUID();
         hotfixBean.setId(hotfixId);
         hotfixBean.setState(HotfixState.INITIAL);

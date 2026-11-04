@@ -1,0 +1,140 @@
+{% extends 'environs/env_base.html' %}
+{% load utils %}
+{% load static %}
+
+{% block breadcrumb-items %}
+<ul class="breadcrumb">
+    <li><a href="/">Home</a></li>
+    <li><a href="/">Clouds</a></li>
+    <li><a href="/clouds/baseimages/">Base Images</a></li>
+    <li><a href="#">Base Image Update Events</a></li>
+</ul>
+{% endblock %}
+
+{% block side-panel-actions %}
+<div class="panel panel-default">
+    <div class="panel-heading clearfix">
+        <h4 class="panel-title pull-left">Base Images Events</h4>
+    </div>
+    <div class="row">
+        <a id="listGroupsBtnId" href="/clouds/baseimages/" class="deployToolTip btn btn-default btn-block">
+            <span class="glyphicon glyphicon-wrench"></span> Back to Base Images List
+        </a>
+    </div>
+    <div class="row">
+        <button class="deployToolTip btn btn-default btn-block" id="demoteBtnId">
+            <span class="glyphicon glyphicon-circle-arrow-down"></span> Demote
+        </button>
+        <button class="deployToolTip btn btn-default btn-block" id="promoteBtnId"
+            data-toggle="modal" data-target="#promoteImageModalId" title="Promote Image">
+            <span class="glyphicon glyphicon-circle-arrow-up"></span> Promote
+        </button>
+    </div>
+    {% if cancellable %}
+    <div class="row">
+        <button class="deployToolTip btn btn-default btn-block" id="cancelBtnId">
+            <span class="glyphicon glyphicon-remove-circle"></span> Cancel
+        </button>
+    </div>
+    {% endif %}
+</div>
+<script>
+    $("#demoteBtnId").click(function () {
+        $.ajax({
+            type: 'DELETE',
+            url: `${location.protocol}//${location.host}/clouds/demote_image/{{ image_id }}/`,
+            dataType: "json",
+            beforeSend: function (xhr, settings) {
+                var csrftoken = getCookie('csrftoken')
+                xhr.setRequestHeader("X-CSRFToken", csrftoken);
+            },
+            success: function (data) {
+                window.location.href = window.location.href;
+                globalNotificationBanner.info = "Request sent successfully";
+            },
+            error: function (data) { // if error occured
+                globalNotificationBanner.error = data.responseJSON.error;
+            },
+        });
+    });
+
+    $("#cancelBtnId").click(function () {
+        $.ajax({
+            type: 'PUT',
+            url: `${location.protocol}//${location.host}/clouds/cancel_image_update/{{ image_id }}/`,
+            dataType: "json",
+            beforeSend: function (xhr, settings) {
+                var csrftoken = getCookie('csrftoken')
+                xhr.setRequestHeader("X-CSRFToken", csrftoken);
+            },
+            success: function (data) {
+                window.location.href = window.location.href;
+                globalNotificationBanner.info = "Request sent successfully";
+            },
+            error: function (data) { // if error occured
+                globalNotificationBanner.error = data.responseJSON.error;
+            },
+        });
+    });
+</script>
+{% endblock %}
+
+{% block new-builds-panel %}
+{% endblock %}
+{% block new-pred-deploys-panel %}
+{% endblock %}
+
+{% block main %}
+
+<div class="panel panel-default">
+    <div class="panel-heading clearfix">
+        <h4 class="panel-title pull-left">Base Image Information</h4>
+    </div>
+    {% include "clusters/base_image_info.tmpl" %}
+    <div class="panel-heading clearfix">
+        <h4 class="panel-title pull-left">Base Image Update Events</h4>
+    </div>
+    {% if base_images_events|length > 0 %}
+    {% include "clusters/base_images_events.tmpl" %}
+    {% else %}
+    <div class="panel-body table-responsive">
+        There is no base image update events
+    </div>
+    {% endif %}
+</div>
+
+<div class="modal fade" id="promoteImageModalId" tabindex="-1" role="dialog"
+    aria-labelledby="promoteImageModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-md">
+        <div class="modal-content">
+            <form id="promoteImageFormId" class="form-horizontal" role="form" method="post" action="/clouds/promote_image/{{ image_id }}/">
+                <div class="modal-header">
+                    <button type="button" class="close" data-dismiss="modal"><span
+                            aria-hidden="true">&times;</span><span class="sr-only">Close</span></button>
+                    <h4 class="modal-title">Promote Image Confirm</h4>
+                </div>
+                <div class="modal-body" id="promoteImageModal">
+                    <div class="form-group">
+                        <label class="deployToolTip control-label text-center col-xs-6">
+                            Golden Tag
+                        </label>
+                        <div class="col-md-6">
+                            <select class="form-control" name="tag" required id="tag">
+                                <option value="latest">LATEST</option>
+                                <option value="canary">CANARY</option>
+                                <option value="prod">PROD</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button id="modalConfirmBtnId" type="submit" class="btn btn-primary">Promote</button>
+                    <button id="modalCloseBtnId" type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                </div>
+                {% csrf_token %}
+            </form>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

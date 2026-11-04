@@ -1,0 +1,121 @@
+{% load utils %}
+{% load static %}
+
+<div class="panel-body table-responsive">
+    <table class="table table-striped table-bordered table-condensed table-hover">
+        <tr>
+            <td>Base Image ID</td>
+            <td>{{ current_image.id }}</td>
+        </tr>
+        <tr>
+            <td>Provider Name</td>
+            <td>
+              <a class="deployToolTip" data-toggle="tooltip"
+                  title="Click to see provider name details"
+                  href="{{ imageProviderNameUrl }}{{ current_image.provider_name }}?json=False"
+              >
+                    {{ current_image.provider_name }}
+              </a>
+            </td>
+        </tr>
+        <tr>
+            <td>Publish Date</td>
+            <td>{{ current_image.publish_date|convertTimestamp }}</td>
+        </tr>
+        <tr>
+            <td>Abstract Name</td>
+            <td>
+              <a class="deployToolTip" data-toggle="tooltip"
+                  title="Click to see abstract name details"
+                  href="/clouds/baseimages/{{ current_image.abstract_name }}"
+              >
+                  {{ current_image.abstract_name }}
+              </a>
+            </td>
+        </tr>
+        <tr>
+            <td>Arch</td>
+            <td>
+                {{ current_image.arch_name }}
+            </td>
+        </tr>
+        <tr>
+            <td>Cell</td>
+            <td>
+                {{ current_image.cell_name }}
+            </td>
+        </tr>
+        <tr>
+            <td>Publish Info</td>
+            <td>
+                {% if current_image.publish_info  %}
+                    <a class="deployToolTip" data-toggle="tooltip"
+                        title="Click to see the details of the build job"
+                        href='{{ current_image.publish_info }}'
+                    >
+                        <i class="fa fa-wrench"></i>
+                        Publisher Information
+                    </a>
+                {% else %}
+                    <span> <i class="fa fa-wrench"></i>
+                    Publisher Information
+                    </span>
+                {% endif %}
+            </td>
+        </tr>
+        <tr>
+            <td>Golden Tags</td>
+            <td>
+                {%if golden_latest %}
+                    <span class="label label-primary">GOLDEN_LATEST</span>
+                {% endif %}
+                {%if golden_canary %}
+                    <span class="label label-success">GOLDEN_CANARY</span>
+                {% endif %}
+                {%if golden_prod %}
+                    <span class="label label-warning">GOLDEN</span>
+                {% endif %}
+            </td>
+        </tr>
+        {% if progress is not None %}
+        <tr>
+            <td>Update State</td>
+            <td>
+                <span class="pointer-cursor {{ progress.state }}" data-toggle="tooltip" title="{{ progress.state }}">
+                </span>
+                {{ progress.state }}
+            </td>
+        </tr>
+        <tr>
+            <td>Update Progress</td>
+            <td>
+                <div class="progress deployToolTip" data-toggle="tooltip">
+                    <div class="progress-bar progress-bar-success" data-toggle="tooltip"
+                        title="{{ progress.progressTip }}" role="progressbar" aria-valuenow="{{ progress.successRate }}"
+                        aria-valuemin="0" aria-valuemax="100" style="width: {{ progress.successRatePercentage }}%;">
+                        <span class="show">{{ progress.successRate }}</span>
+                    </div>
+                </div>
+            </td>
+        </tr>
+        {% endif %}
+    </table>
+    <div class="panel-body table-responsive">
+        {% for cluster in cluster_statuses %}
+            {% if cluster.status == "FAILED" %}
+                <a href="/groups/{{cluster.cluster_name}}" type="button" class="deployToolTip btn btn-xs btn-danger host-btn">
+            {% else %}
+                <a href="/groups/{{cluster.cluster_name}}" type="button" class="deployToolTip btn btn-xs btn-default host-btn">
+            {% endif %}
+            <small> {{cluster.cluster_name}}</small>
+            {% if cluster.status == "FAILED" %}
+            <i class="fa fa-fw fa-exclamation-triangle"></i>
+            {% elif cluster.status == "SUCCEEDED" %}
+            <i class="fa fa-fw fa-check"></i>
+            {% else %}
+            <i class="fa fa-fw fa-spinner fa-spin"></i>
+            {% endif %}
+            </a>
+        {% endfor %}
+    </div>
+</div>

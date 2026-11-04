@@ -13,16 +13,7 @@
 # limitations under the License.
 
 # -*- coding: utf-8 -*-
-"""Backend server all exception
-"""
-
-
-class FailedAuthenticationException(Exception):
-    pass
-
-
-class NotAuthorizedException(Exception):
-    pass
+"""Backend server all exception"""
 
 
 class NotFoundException(Exception):
@@ -30,4 +21,21 @@ class NotFoundException(Exception):
 
 
 class TeletraanException(Exception):
-    pass
+    def __init__(self, message: str, status=500) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+class IllegalArgumentException(TeletraanException):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, status=400)
+
+
+class FailedAuthenticationException(TeletraanException):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, status=401)
+
+
+class NotAuthorizedException(TeletraanException):
+    def __init__(self, message: str) -> None:
+        super().__init__(message, status=403)

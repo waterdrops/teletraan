@@ -3,9 +3,9 @@
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-#  
+#
 #     http://www.apache.org/licenses/LICENSE-2.0
-#    
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -13,62 +13,75 @@
 # limitations under the License.
 
 from deployd.types.ping_report import PingReport
-from deployd.types.opcode import OperationCode
 
 
 class AgentStatus(object):
-    SUCCEEDED = 'SUCCEEDED'
-    UNKNOWN = 'UNKNOWN'
-    AGENT_FAILED = 'AGENT_FAILED'
-    RETRYABLE_AGENT_FAILED = 'RETRYABLE_AGENT_FAILED'
+    SUCCEEDED = "SUCCEEDED"
+    UNKNOWN = "UNKNOWN"
+    AGENT_FAILED = "AGENT_FAILED"
+    RETRYABLE_AGENT_FAILED = "RETRYABLE_AGENT_FAILED"
     # TODO This is not currently used at all, consider to remove it
-    SCRIPT_FAILED = 'SCRIPT_FAILED'
+    SCRIPT_FAILED = "SCRIPT_FAILED"
     # TODO Agent execution is aborted manually on the host, server does not handle it right now
-    ABORTED_BY_SERVICE = 'ABORTED_BY_SERVICE'
-    SCRIPT_TIMEOUT = 'SCRIPT_TIMEOUT'
-    TOO_MANY_RETRY = 'TOO_MANY_RETRY'
-    RUNTIME_MISMATCH = 'RUNTIME_MISMATCH'
-    ABORTED_BY_SERVER = 'ABORTED_BY_SERVER'
+    ABORTED_BY_SERVICE = "ABORTED_BY_SERVICE"
+    SCRIPT_TIMEOUT = "SCRIPT_TIMEOUT"
+    TOO_MANY_RETRY = "TOO_MANY_RETRY"
+    RUNTIME_MISMATCH = "RUNTIME_MISMATCH"
+    ABORTED_BY_SERVER = "ABORTED_BY_SERVER"
 
 
 class DeployStage(object):
-    UNKNOWN = 'UNKNOWN'
-    PRE_DOWNLOAD = 'PRE_DOWNLOAD'
-    DOWNLOADING = 'DOWNLOADING'
-    POST_DOWNLOAD = 'POST_DOWNLOAD'
-    STAGING = 'STAGING'
-    PRE_RESTART = 'PRE_RESTART'
-    RESTARTING = 'RESTARTING'
-    POST_RESTART = 'POST_RESTART'
-    SERVING_BUILD = 'SERVING_BUILD'
-    STOPPING = 'STOPPING'
-    STOPPED = 'STOPPED'
+    UNKNOWN = "UNKNOWN"
+    PRE_DOWNLOAD = "PRE_DOWNLOAD"
+    DOWNLOADING = "DOWNLOADING"
+    POST_DOWNLOAD = "POST_DOWNLOAD"
+    STAGING = "STAGING"
+    PRE_RESTART = "PRE_RESTART"
+    RESTARTING = "RESTARTING"
+    POST_RESTART = "POST_RESTART"
+    SERVING_BUILD = "SERVING_BUILD"
+    STOPPING = "STOPPING"
+    STOPPED = "STOPPED"
 
 
 class DeployType(object):
-    REGULAR = 'REGULAR'
-    HOTFIX = 'HOTFIX'
-    ROLLBACK = 'ROLLBACK'
-    RESTART = 'RESTART'
-    STOP = 'STOP'
+    REGULAR = "REGULAR"
+    HOTFIX = "HOTFIX"
+    ROLLBACK = "ROLLBACK"
+    RESTART = "RESTART"
+    STOP = "STOP"
+
+
+class DeployErrorSource(object):
+    TELEFIG = "TELEFIG"
+    UNKNOWN = "UNKNOWN"
+
+
+class DeployError(object):
+    TELEFIG_UNAVAILABLE = "TELEFIG_UNAVAILABLE"
+    UNKNOWN = "UNKNOWN"
 
 
 class OpCode(object):
-    NOOP = 'NOOP'
-    DEPLOY = 'DEPLOY'
-    UPDATE = 'UPDATE'
-    RESTART = 'RESTART'
-    DELETE = 'DELETE'
-    TERMINATE = 'TERMINATE'
-    WAIT = 'WAIT'
-    ROLLBACK = 'ROLLBACK'
-    STOP = 'STOP'
+    NOOP = "NOOP"
+    DEPLOY = "DEPLOY"
+    UPDATE = "UPDATE"
+    RESTART = "RESTART"
+    DELETE = "DELETE"
+    TERMINATE = "TERMINATE"
+    WAIT = "WAIT"
+    ROLLBACK = "ROLLBACK"
+    STOP = "STOP"
 
 
 class DeployReport(object):
-
-    def __init__(self, status_code=AgentStatus.UNKNOWN,
-                 error_code=0, output_msg=None, retry_times=0):
+    def __init__(
+        self,
+        status_code=AgentStatus.UNKNOWN,
+        error_code=0,
+        output_msg=None,
+        retry_times=0,
+    ) -> None:
         self.status_code = status_code
         self.error_code = error_code
         self.output_msg = output_msg
@@ -82,9 +95,15 @@ class PingStatus(object):
 
 
 class BuildInfo(object):
-
-    def __init__(self, commit, build_url, build_id, build_name=None,
-                 build_repo=None, build_branch=None):
+    def __init__(
+        self,
+        commit,
+        build_url,
+        build_id,
+        build_name=None,
+        build_repo=None,
+        build_branch=None,
+    ) -> None:
         self.build_commit = commit
         self.build_url = build_url
         self.build_id = build_id
@@ -92,7 +111,7 @@ class BuildInfo(object):
         self.build_repo = build_repo
         self.build_branch = build_branch
 
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         if other:
             return self.__dict__ == other.__dict__
         else:
@@ -108,20 +127,22 @@ class DeployStatus(object):
     script_variables = None
     is_docker = None
 
-    def __init__(self, response=None, json_value=None):
+    def __init__(self, response=None, json_value=None) -> None:
         if response:
             self.update_by_response(response)
         elif json_value:
             self.load_from_json(json_value)
 
     def __eq__(self, other):
-        return self.build_info == other.build_info and \
-            self.report == other.report and \
-            self.runtime_config == other.runtime_config and \
-            self.op_code == other.op_code
+        return (
+            self.build_info == other.build_info
+            and self.report == other.report
+            and self.runtime_config == other.runtime_config
+            and self.op_code == other.op_code
+        )
 
     # update the deploy status by the current ping response from teletraan server
-    def update_by_response(self, response):
+    def update_by_response(self, response) -> None:
         deploy_goal = response.deployGoal
         self.op_code = response.opCode
         if not self.report:
@@ -134,17 +155,20 @@ class DeployStatus(object):
         self.report.envName = deploy_goal.envName
         self.report.status = AgentStatus.UNKNOWN
         self.report.stageName = deploy_goal.stageName
+        self.report.stageType = deploy_goal.stageType
         self.first_deploy = deploy_goal.firstDeploy
         self.is_docker = deploy_goal.isDocker
 
         if deploy_goal.build:
             build = deploy_goal.build
-            self.build_info = BuildInfo(commit=build.scmCommit,
-                                        build_url=build.artifactUrl,
-                                        build_id=build.buildId,
-                                        build_name=build.buildName,
-                                        build_repo=build.scmRepo,
-                                        build_branch=build.scmBranch)
+            self.build_info = BuildInfo(
+                commit=build.scmCommit,
+                build_url=build.artifactUrl,
+                build_id=build.buildId,
+                build_name=build.buildName,
+                build_repo=build.scmRepo,
+                build_branch=build.scmBranch,
+            )
         if deploy_goal.scriptVariables:
             self.script_variables = deploy_goal.scriptVariables
 
@@ -153,7 +177,7 @@ class DeployStatus(object):
             self.runtime_config = dict(deploy_goal.config)
 
     # update the env status with current deploy report
-    def update_by_deploy_report(self, deploy_report):
+    def update_by_deploy_report(self, deploy_report) -> None:
         # aborted by server happens when
         if deploy_report.status_code == AgentStatus.ABORTED_BY_SERVER:
             self.report.status = AgentStatus.UNKNOWN
@@ -166,31 +190,29 @@ class DeployStatus(object):
             self.report.errorMessage = None
         self.report.failCount = deploy_report.retry_times
 
-    def load_from_json(self, json_value):
-        report = json_value.get('report')
-        build_info = json_value.get('build_info')
+    def load_from_json(self, json_value) -> None:
+        report = json_value.get("report")
+        build_info = json_value.get("build_info")
         if report:
             self.report = PingReport(jsonValue=report)
         if build_info:
-            self.build_info = BuildInfo(commit=build_info.get('build_commit'),
-                                        build_url=build_info.get('build_url'),
-                                        build_id=build_info.get('build_id'),
-                                        build_name=build_info.get('build_name'),
-                                        build_repo=build_info.get('build_repo'),
-                                        build_branch=build_info.get('build_branch'))
+            self.build_info = BuildInfo(
+                commit=build_info.get("build_commit"),
+                build_url=build_info.get("build_url"),
+                build_id=build_info.get("build_id"),
+                build_name=build_info.get("build_name"),
+                build_repo=build_info.get("build_repo"),
+                build_branch=build_info.get("build_branch"),
+            )
 
-        self.runtime_config = json_value.get('runtime_config')
-        op_code = json_value.get('op_code', OpCode.NOOP)
-        if isinstance(op_code, int):
-            self.op_code = OperationCode._VALUES_TO_NAMES[op_code]
-        else:
-            self.op_code = op_code
+        self.runtime_config = json_value.get("runtime_config")
+        self.op_code = json_value.get("op_code", OpCode.NOOP)
 
-    def to_json(self):
+    def to_json(self) -> dict:
         json = {}
-        for key, value in self.__dict__.iteritems():
-            if type(value) is dict:
-                json[key] = {k: v for k, v in value.iteritems()}
+        for key, value in self.__dict__.items():
+            if isinstance(value, dict):
+                json[key] = {k: v for k, v in value.items()}
             elif value:
                 if hasattr(value, "__dict__"):
                     json[key] = value.__dict__
@@ -198,9 +220,9 @@ class DeployStatus(object):
                     json[key] = value
         return json
 
-    def __str__(self):
+    def __str__(self) -> str:
         return str(self.to_json())
 
 
 # TODO prefer get it from server ( STEPS, PRE_STAGE_STEPS etc.)
-PRE_STAGE_STEPS = ('PRE_DOWNLOAD', 'DOWNLOADING', 'POST_DOWNLOAD', 'STAGING')
+PRE_STAGE_STEPS = ("PRE_DOWNLOAD", "DOWNLOADING", "POST_DOWNLOAD", "STAGING")

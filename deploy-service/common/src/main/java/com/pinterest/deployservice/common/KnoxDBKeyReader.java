@@ -1,46 +1,40 @@
+/**
+ * Copyright (c) 2018-2021 Pinterest, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.pinterest.deployservice.common;
-
-import com.pinterest.deployservice.knox.CommandLineKnox;
-import com.pinterest.deployservice.knox.FileSystemKnox;
-import com.pinterest.deployservice.knox.Knox;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.io.File;
 
 public class KnoxDBKeyReader {
 
     private static final Logger LOG = LoggerFactory.getLogger(KnoxDBKeyReader.class);
 
-    private static Knox mKnox;
-
     // initialize to credentials in test env
     private static String testUserName = "root";
     private static String testPassword = "";
+    private static KnoxKeyManager knoxManager;
 
     public static void init(String roleString) {
         try {
-           LOG.info("Init the db key with role {}", roleString);
-            String mysqlKeys = String.format("mysql:rbac:%s:credentials", roleString);
-            // Register key
-            File file = new File("/var/lib/knox/v0/keys/" + mysqlKeys);
-            if (!file.exists()) {
-                CommandLineKnox cmdKnox = new CommandLineKnox(mysqlKeys, Runtime.getRuntime());
-
-                    if (cmdKnox.register() != 0) {
-                        throw new RuntimeException("Error registering mysql keys: " + mysqlKeys);
-                    }
-
-                long startTime = System.currentTimeMillis();
-                while (!file.exists() && System.currentTimeMillis() - startTime < 5000) {
-                    try {
-                        Thread.sleep(100);
-                    } catch (InterruptedException ignore) {
-                    }
-                }
+            LOG.info("Init the db key with role {}", roleString);
+            if (knoxManager == null) {
+                knoxManager = new KnoxKeyManager();
             }
-            mKnox = new FileSystemKnox(mysqlKeys);
+            String key = String.format("mysql:rbac:%s:credentials", roleString);
+            knoxManager.init(key);
         } catch (Exception e) {
             LOG.error("Using default credentials due to exception :" + e.getMessage());
         }
@@ -48,19 +42,19 @@ public class KnoxDBKeyReader {
         // another exception in prod environments due to wrong credentials.
     }
 
-
     /**
      * Get db username
+     *
      * @return The db username
      */
     public static String getUserName() {
-        if (mKnox == null) {
-            LOG.error("Using default username since mKnox is null");
+        if (knoxManager == null) {
+            LOG.error("Using default username since knoxManager is null");
             return testUserName;
         }
         try {
             String userSpec;
-            String mysqlCredsPriString = new String(mKnox.getPrimaryKey(), "UTF-8");
+            String mysqlCredsPriString = knoxManager.getKey();
             userSpec = mysqlCredsPriString.split("\\|")[0];
             String userName = userSpec.split("\\@")[0];
             return userName;
@@ -72,15 +66,16 @@ public class KnoxDBKeyReader {
 
     /**
      * Get db password
+     *
      * @return The db password
      */
     public static String getPassword() {
-        if (mKnox == null) {
-            LOG.error("Using default password since mKnox is null");
+        if (knoxManager == null) {
+            LOG.error("Using default password since knoxManager is null");
             return testPassword;
         }
         try {
-            String mysqlCredsPriString = new String(mKnox.getPrimaryKey(), "UTF-8");
+            String mysqlCredsPriString = knoxManager.getKey();
             String password = mysqlCredsPriString.split("\\|")[1];
             return password;
         } catch (Exception e) {

@@ -1,12 +1,12 @@
 /**
- * Copyright 2016 Pinterest, Inc.
+ * Copyright (c) 2016-2024 Pinterest, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *  
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *    
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -18,24 +18,32 @@ package com.pinterest.teletraan.worker;
 import com.pinterest.deployservice.ServiceContext;
 import com.pinterest.deployservice.dao.EnvironDAO;
 import com.pinterest.deployservice.handler.CommonHandler;
+import com.pinterest.teletraan.universal.metrics.ErrorBudgetCounterFactory;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Timer;
+import java.util.Collections;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Collections;
-import java.util.List;
-
-/**
- * Check active deploys and transition them into final states
- */
+/** Check active deploys and transition them into final states */
 public class StateTransitioner implements Runnable {
     private static final Logger LOG = LoggerFactory.getLogger(StateTransitioner.class);
+    private static final Timer WORKER_TIMER =
+            WorkerTimerFactory.createWorkerTimer(StateTransitioner.class);
 
     private EnvironDAO environDAO;
     private CommonHandler commonHandler;
+    private Counter errorBudgetSuccess;
+    private Counter errorBudgetFailure;
 
     public StateTransitioner(ServiceContext serviceContext) {
         environDAO = serviceContext.getEnvironDAO();
         commonHandler = new CommonHandler(serviceContext);
+        errorBudgetSuccess =
+                ErrorBudgetCounterFactory.createSuccessCounter(this.getClass().getSimpleName());
+        errorBudgetFailure =
+                ErrorBudgetCounterFactory.createFailureCounter(this.getClass().getSimpleName());
     }
 
     void processBatch() throws Exception {
@@ -43,6 +51,8 @@ public class StateTransitioner implements Runnable {
         List<String> deployIds = environDAO.getCurrentDeployIds();
         if (deployIds.isEmpty()) {
             LOG.info("StateTransitioner did not find any active deploy, exiting.");
+
+            errorBudgetSuccess.increment();
             return;
         }
         Collections.shuffle(deployIds);
@@ -50,21 +60,31 @@ public class StateTransitioner implements Runnable {
             try {
                 LOG.debug("StateTransitioner chooses deploy {} to work on.", deployId);
                 commonHandler.transitionDeployState(deployId, null);
+
+                errorBudgetSuccess.increment();
             } catch (Throwable t) {
                 // Catch all throwable so that subsequent job not suppressed
                 LOG.error("StateTransitioner failed to process {}", deployId, t);
+
+                errorBudgetFailure.increment();
             }
         }
     }
 
     @Override
     public void run() {
+        WORKER_TIMER.record(() -> runInternal());
+    }
+
+    private void runInternal() {
         try {
             LOG.info("Start StateTransitioner process...");
             processBatch();
         } catch (Throwable t) {
             // Catch all throwable so that subsequent job not suppressed
             LOG.error("Failed to call StateTransitioner.", t);
+
+            errorBudgetFailure.increment();
         }
     }
 }

@@ -1,5 +1,5 @@
-/*
- * Copyright 2016 Pinterest, Inc.
+/**
+ * Copyright (c) 2016-2026 Pinterest, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,11 +15,14 @@
  */
 package com.pinterest.deployservice;
 
-
+import com.pinterest.deployservice.allowlists.Allowlist;
 import com.pinterest.deployservice.buildtags.BuildTagsManager;
 import com.pinterest.deployservice.chat.ChatManager;
-import com.pinterest.deployservice.dao.AgentDAO;
+import com.pinterest.deployservice.ci.Buildkite;
+import com.pinterest.deployservice.ci.CIPlatformManagerProxy;
+import com.pinterest.deployservice.ci.Jenkins;
 import com.pinterest.deployservice.dao.AgentCountDAO;
+import com.pinterest.deployservice.dao.AgentDAO;
 import com.pinterest.deployservice.dao.AgentErrorDAO;
 import com.pinterest.deployservice.dao.BuildDAO;
 import com.pinterest.deployservice.dao.ConfigHistoryDAO;
@@ -29,10 +32,11 @@ import com.pinterest.deployservice.dao.DeployDAO;
 import com.pinterest.deployservice.dao.EnvironDAO;
 import com.pinterest.deployservice.dao.GroupDAO;
 import com.pinterest.deployservice.dao.GroupRolesDAO;
-import com.pinterest.deployservice.dao.HostDAO;
 import com.pinterest.deployservice.dao.HostAgentDAO;
+import com.pinterest.deployservice.dao.HostDAO;
 import com.pinterest.deployservice.dao.HostTagDAO;
 import com.pinterest.deployservice.dao.HotfixDAO;
+import com.pinterest.deployservice.dao.PindeployDAO;
 import com.pinterest.deployservice.dao.PromoteDAO;
 import com.pinterest.deployservice.dao.RatingDAO;
 import com.pinterest.deployservice.dao.ScheduleDAO;
@@ -40,19 +44,20 @@ import com.pinterest.deployservice.dao.TagDAO;
 import com.pinterest.deployservice.dao.TokenRolesDAO;
 import com.pinterest.deployservice.dao.UserRolesDAO;
 import com.pinterest.deployservice.dao.UtilDAO;
+import com.pinterest.deployservice.dao.WorkerJobDAO;
 import com.pinterest.deployservice.email.MailManager;
-import com.pinterest.deployservice.events.EventSender;
-import com.pinterest.deployservice.group.HostGroupManager;
+import com.pinterest.deployservice.events.BuildEventPublisher;
 import com.pinterest.deployservice.pingrequests.PingRequestValidator;
 import com.pinterest.deployservice.rodimus.RodimusManager;
-import com.pinterest.deployservice.scm.SourceControlManager;
-import com.pinterest.deployservice.allowlists.BuildAllowlistImpl;
-import com.pinterest.deployservice.allowlists.Allowlist;
-
-import org.apache.commons.dbcp.BasicDataSource;
-
+import com.pinterest.deployservice.scm.SourceControlManagerProxy;
+import com.pinterest.deployservice.udm.UdmDataUpdateService;
+import com.pinterest.teletraan.universal.events.AppEventPublisher;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
+import org.apache.commons.dbcp.BasicDataSource;
 
 public class ServiceContext {
     private BasicDataSource dataSource;
@@ -68,10 +73,8 @@ public class ServiceContext {
     private DataDAO dataDAO;
     private UtilDAO utilDAO;
     private RatingDAO ratingDAO;
-    private EventSender eventSender;
     private PromoteDAO promoteDAO;
     private GroupDAO groupDAO;
-    private HostGroupManager hostGroupDAO;
     private UserRolesDAO userRolesDAO;
     private GroupRolesDAO groupRolesDAO;
     private TokenRolesDAO tokenRolesDAO;
@@ -80,16 +83,21 @@ public class ServiceContext {
     private ScheduleDAO scheduleDAO;
     private HostTagDAO hostTagDAO;
     private DeployConstraintDAO deployConstraintDAO;
+    private PindeployDAO pindeployDAO;
+    private WorkerJobDAO workerJobDAO;
 
     private Allowlist buildAllowlist;
+    private List<String> metricsUrlAllowedPrefixes;
 
     private String serviceStage;
     private MailManager mailManager;
-    private SourceControlManager sourceControlManager;
+    private SourceControlManagerProxy sourceControlManagerProxy;
+    private CIPlatformManagerProxy ciPlatformManagerProxy;
     private ChatManager chatManager;
     private ExecutorService jobPool;
     private RodimusManager rodimusManager;
     private BuildTagsManager buildTagsManager;
+    private UdmDataUpdateService udmDataUpdateService;
 
     private boolean buildCacheEnabled;
     private String buildCacheSpec;
@@ -97,16 +105,39 @@ public class ServiceContext {
     private boolean deployCacheEnabled;
     private String deployBoardUrlPrefix;
     private String changeFeedUrl;
-    private String jenkinsUrl;
-    private String jenkinsRemoteToken;
+    private Jenkins jenkins;
+    private Buildkite buildkite;
     private List<PingRequestValidator> pingRequestValidators;
     private Long agentCountCacheTtl;
+    private Long maxParallelThreshold;
+    private BuildEventPublisher buildEventPublisher;
+    private Set<String> accountAllowList;
+
+    // Publishers & Listeners
+    private AppEventPublisher appEventPublisher;
+
+    public AppEventPublisher getAppEventPublisher() {
+        return appEventPublisher;
+    }
+
+    public void setAppEventPublisher(AppEventPublisher appEventPublisher) {
+        this.appEventPublisher = appEventPublisher;
+    }
+
     public Allowlist getBuildAllowlist() {
         return buildAllowlist;
     }
 
     public void setBuildAllowlist(Allowlist buildAllowlist) {
         this.buildAllowlist = buildAllowlist;
+    }
+
+    public List<String> getMetricsUrlAllowedPrefixes() {
+        return metricsUrlAllowedPrefixes;
+    }
+
+    public void setMetricsUrlAllowedPrefixes(List<String> metricsUrlAllowedPrefixes) {
+        this.metricsUrlAllowedPrefixes = metricsUrlAllowedPrefixes;
     }
 
     public GroupRolesDAO getGroupRolesDAO() {
@@ -197,6 +228,22 @@ public class ServiceContext {
         this.hostDAO = hostDAO;
     }
 
+    public PindeployDAO getPindeployDAO() {
+        return pindeployDAO;
+    }
+
+    public void setPindeployDAO(PindeployDAO pindeployDAO) {
+        this.pindeployDAO = pindeployDAO;
+    }
+
+    public WorkerJobDAO getWorkerJobDAO() {
+        return workerJobDAO;
+    }
+
+    public void setWorkerJobDAO(WorkerJobDAO workerJobDAO) {
+        this.workerJobDAO = workerJobDAO;
+    }
+
     public HostAgentDAO getHostAgentDAO() {
         return hostAgentDAO;
     }
@@ -237,14 +284,6 @@ public class ServiceContext {
         this.groupDAO = groupDAO;
     }
 
-    public void setHostGroupDAO(HostGroupManager hostGroupDAO) {
-        this.hostGroupDAO = hostGroupDAO;
-    }
-
-    public HostGroupManager getHostGroupDAO() {
-        return hostGroupDAO;
-    }
-
     public HostTagDAO getHostTagDAO() {
         return hostTagDAO;
     }
@@ -269,14 +308,6 @@ public class ServiceContext {
         return configHistoryDAO;
     }
 
-    public void setEventSender(EventSender sender) {
-        this.eventSender = sender;
-    }
-
-    public EventSender getEventSender() {
-        return this.eventSender;
-    }
-
     public void setServiceStage(String serviceStage) {
         this.serviceStage = serviceStage;
     }
@@ -285,12 +316,20 @@ public class ServiceContext {
         return this.serviceStage;
     }
 
-    public SourceControlManager getSourceControlManager() {
-        return sourceControlManager;
+    public SourceControlManagerProxy getSourceControlManagerProxy() {
+        return sourceControlManagerProxy;
     }
 
-    public void setSourceControlManager(SourceControlManager sourceControlManager) {
-        this.sourceControlManager = sourceControlManager;
+    public void setSourceControlManagerProxy(SourceControlManagerProxy sourceControlManagerProxy) {
+        this.sourceControlManagerProxy = sourceControlManagerProxy;
+    }
+
+    public CIPlatformManagerProxy getCIPlatformManagerProxy() {
+        return ciPlatformManagerProxy;
+    }
+
+    public void setCIPlatformManagerProxy(CIPlatformManagerProxy ciPlatformManagerProxy) {
+        this.ciPlatformManagerProxy = ciPlatformManagerProxy;
     }
 
     public ChatManager getChatManager() {
@@ -333,7 +372,6 @@ public class ServiceContext {
         this.tokenRolesDAO = tokenRolesDAO;
     }
 
-
     public RodimusManager getRodimusManager() {
         return rodimusManager;
     }
@@ -342,6 +380,13 @@ public class ServiceContext {
         this.rodimusManager = rodimusManager;
     }
 
+    public UdmDataUpdateService getUdmDataUpdateService() {
+        return udmDataUpdateService;
+    }
+
+    public void setUdmDataUpdateService(UdmDataUpdateService udmDataUpdateService) {
+        this.udmDataUpdateService = udmDataUpdateService;
+    }
 
     public void setBuildCacheEnabled(boolean buildCacheEnabled) {
         this.buildCacheEnabled = buildCacheEnabled;
@@ -391,20 +436,22 @@ public class ServiceContext {
         this.changeFeedUrl = changeFeedUrl;
     }
 
-    public String getJenkinsUrl() {
-        return jenkinsUrl;
+    // keep these getter and setter for Jenkins for backward compatibility purpose
+    // the new way is to use CIPlatformManagerProxy
+    public Jenkins getJenkins() {
+        return jenkins;
     }
 
-    public void setJenkinsUrl(String jenkinsUrl) {
-        this.jenkinsUrl = jenkinsUrl;
+    public void setJenkins(Jenkins jenkins) {
+        this.jenkins = jenkins;
     }
 
-    public String getJenkinsRemoteToken() {
-        return jenkinsRemoteToken;
+    public Buildkite getBuildkite() {
+        return buildkite;
     }
 
-    public void setJenkinsRemoteToken(String jenkinsRemoteToken) {
-        this.jenkinsRemoteToken = jenkinsRemoteToken;
+    public void setBuildkite(Buildkite buildkite) {
+        this.buildkite = buildkite;
     }
 
     public TagDAO getTagDAO() {
@@ -435,8 +482,7 @@ public class ServiceContext {
         return pingRequestValidators;
     }
 
-    public void setPingRequestValidators(
-        List<PingRequestValidator> pingRequestValidators) {
+    public void setPingRequestValidators(List<PingRequestValidator> pingRequestValidators) {
         this.pingRequestValidators = pingRequestValidators;
     }
 
@@ -448,4 +494,27 @@ public class ServiceContext {
         this.agentCountCacheTtl = agentCountCacheTttl;
     }
 
+    public Long getMaxParallelThreshold() {
+        return maxParallelThreshold;
+    }
+
+    public void setMaxParallelThreshold(Long maxParallelThreshold) {
+        this.maxParallelThreshold = maxParallelThreshold;
+    }
+
+    public BuildEventPublisher getBuildEventPublisher() {
+        return buildEventPublisher;
+    }
+
+    public void setBuildEventPublisher(BuildEventPublisher buildEventPublisher) {
+        this.buildEventPublisher = buildEventPublisher;
+    }
+
+    public Set<String> getAccountAllowList() {
+        return accountAllowList;
+    }
+
+    public void setAccountAllowList(Collection<String> accountAllowList) {
+        this.accountAllowList = new HashSet<String>(accountAllowList);
+    }
 }

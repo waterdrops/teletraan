@@ -13,11 +13,12 @@
 # limitations under the License.
 
 # -*- coding: utf-8 -*-
-"""Some common functions
-"""
+"""Some common functions"""
+
 import logging
-from helpers import environs_helper, deploys_helper, builds_helper, clusters_helper, tags_helper
-from deploy_board.settings import IS_PINTEREST
+from django.contrib import messages
+from .helpers import environs_helper, deploys_helper, builds_helper, tags_helper
+from .helpers.exceptions import NotAuthorizedException
 
 DEFAULT_BUILD_SIZE = 30
 DEFAULT_COMMITS_SIZE = 30
@@ -36,33 +37,42 @@ class UserIdentity(object):
 def get_all_stages(envs, stage):
     stages = []
     env = None
+
+    # Handle None or empty envs gracefully
+    if not envs:
+        return stages, env
+
     for temp in envs:
-        if stage and stage == temp['stageName']:
+        if stage and stage == temp["stageName"]:
             env = temp
-        stages.append(temp['stageName'])
+        stages.append(temp["stageName"])
     stages.sort()
-    if not env:
+
+    if not env and stages:
         stage = stages[0]
         for temp in envs:
-            if temp['stageName'] == stage:
+            if temp["stageName"] == stage:
                 env = temp
                 break
     return stages, env
 
 
 def is_agent_failed(agent):
-    return (agent['status'] != "SUCCEEDED" and agent['status'] != "UNKNOWN") \
-        or agent['state'] == "PAUSED_BY_SYSTEM"
+    return (agent["status"] != "SUCCEEDED" and agent["status"] != "UNKNOWN") or agent[
+        "state"
+    ] == "PAUSED_BY_SYSTEM"
 
 
 # Return the last completed deploy
 def get_last_completed_deploy(request, env):
     # the first one is the current deploy
-    result = deploys_helper.get_all(request, envId=[env['id']], pageIndex=1, pageSize=2)
+    result = deploys_helper.get_all(request, envId=[env["id"]], pageIndex=1, pageSize=2)
     deploys = result.get("deploys")
     if not deploys or len(deploys) < 2:
-        logging.info("Could not find last completed deploy in env %s/%s" % (env['envName'],
-                                                                            env['stageName']))
+        logging.info(
+            "Could not find last completed deploy in env %s/%s"
+            % (env["envName"], env["stageName"])
+        )
         return None
     else:
         return deploys[1]
@@ -70,11 +80,12 @@ def get_last_completed_deploy(request, env):
 
 # Return the last completed deploy
 def get_previous_deploy(request, env, deploy):
-    result = deploys_helper.get_all(request, envId=[env['id']], before=deploy['startDate'],
-                                    pageIndex=1, pageSize=2)
+    result = deploys_helper.get_all(
+        request, envId=[env["id"]], before=deploy["startDate"], pageIndex=1, pageSize=2
+    )
     deploys = result.get("deploys")
     if not deploys or len(deploys) < 2:
-        logging.info("Could not find a deploy before deploy %s" % deploy['id'])
+        logging.info("Could not find a deploy before deploy %s" % deploy["id"])
         return None
     else:
         return deploys[1]
@@ -83,10 +94,12 @@ def get_previous_deploy(request, env, deploy):
 # Return all the commits, up to allowed size, also a
 # boolean indicated if the result was truncated
 # Notice it will never return endSha itself
-def get_commits_batch(request, repo, startSha, endSha, size=DEFAULT_COMMITS_SIZE,
-                      keep_first=False):
-    commits = builds_helper.get_commits(request=request, repo=repo, startSha=startSha,
-                                        endSha=endSha, size=size)
+def get_commits_batch(
+    request, scm, repo, startSha, endSha, size=DEFAULT_COMMITS_SIZE, keep_first=False
+):
+    commits = builds_helper.get_commits(
+        request=request, scm=scm, repo=repo, startSha=startSha, endSha=endSha, size=size
+    )
     truncated = False
     new_start_sha = None
     if commits and len(commits) >= size:
@@ -100,20 +113,22 @@ def get_commits_batch(request, repo, startSha, endSha, size=DEFAULT_COMMITS_SIZE
 
 
 # it will return all the commits, or max
-def get_commits_between(request, repo, startSha, endSha, max=500):
+def get_commits_between(request, scm, repo, startSha, endSha, max=500):
     total_commits = []
     keep_first = True
     new_start_sha = startSha
 
     while True:
         if len(total_commits) >= max:
-            logging.error("Exceeded max allowed commits, repo=%s, startSha=%s, endSha=%s" % (
-                repo, startSha, endSha))
+            logging.error(
+                "Exceeded max allowed commits, repo=%s, startSha=%s, endSha=%s"
+                % (repo, startSha, endSha)
+            )
             break
 
-        commits, truncated, new_start_sha = get_commits_batch(request, repo,
-                                                              new_start_sha, endSha,
-                                                              keep_first=keep_first)
+        commits, truncated, new_start_sha = get_commits_batch(
+            request, scm, repo, new_start_sha, endSha, keep_first=keep_first
+        )
         keep_first = False
         total_commits.extend(commits)
         if not truncated:
@@ -124,8 +139,8 @@ def get_commits_between(request, repo, startSha, endSha, max=500):
 
 def deploy(request, name, stage):
     query_dict = request.POST
-    desc = query_dict.get('description', None)
-    buildId = query_dict['buildId']
+    desc = query_dict.get("description", None)
+    buildId = query_dict["buildId"]
     return deploys_helper.deploy(request, name, stage, buildId, description=desc)
 
 
@@ -135,95 +150,160 @@ def restart(request, name, stage):
 
 def rollback_to(request, name, stage, deploy_id):
     query_dict = request.POST
-    desc = query_dict.get('description', None)
-    mark_build_as_bad = True if query_dict.get('mark_build_as_bad', 'on') == 'on' else False
-    buildId = query_dict.get('toBeMarkedBuildId', None)
+    desc = query_dict.get("description", None)
+    result = deploys_helper.rollback(request, name, stage, deploy_id, description=desc)
+    mark_build_as_bad = (
+        True if query_dict.get("mark_build_as_bad", "on") == "on" else False
+    )
+    buildId = query_dict.get("toBeMarkedBuildId", None)
     if mark_build_as_bad and buildId:
-        tag = {"targetId": buildId,
-               "targetType": "Build",
-               "value": tags_helper.TagValue.BAD_BUILD,
-               "comments": "deploy rollback, mark build as bad." + desc}
-        logger.info("env {} stage {} rollback, mark buildId {} as {}".format(name, stage, buildId, tag))
-        builds_helper.set_build_tag(request, tag)
-    return deploys_helper.rollback(request, name, stage, deploy_id, description=desc)
+        tag = {
+            "targetId": buildId,
+            "targetType": "Build",
+            "value": tags_helper.TagValue.BAD_BUILD,
+            "comments": "deploy rollback, mark build as bad." + (desc or ""),
+        }
+        logger.info(
+            "env {} stage {} rollback, mark buildId {} as {}".format(
+                name, stage, buildId, tag
+            )
+        )
+        try:
+            builds_helper.set_build_tag(request, tag)
+        except NotAuthorizedException:
+            logger.warning(
+                "Rollback started for %s/%s, but permission to tag build %s was denied",
+                name,
+                stage,
+                buildId,
+            )
+            messages.warning(
+                request,
+                "Rollback started, but the previous build was not marked as bad "
+                "because you do not have permission to modify its build tags. "
+                "Ask a build owner or administrator to mark it as bad.",
+            )
+    return result
 
 
 def promote(request, name, stage):
     query_dict = request.POST
-    toStage = query_dict['toStage']
-    desc = query_dict.get('description', None)
+    toStage = query_dict["toStage"]
+    desc = query_dict.get("description", None)
     env = environs_helper.get_env_by_stage(request, name, stage)
-    return deploys_helper.promote(request, name, toStage, env['deployId'], description=desc)
+    return deploys_helper.promote(
+        request, name, toStage, env["deployId"], description=desc
+    )
 
 
-def clone_from_stage_name(request, env_name, stage_name, from_env_name, from_stage_name,
-                          description, external_id):
-    from_stage = environs_helper.get_env_by_stage(request, from_env_name, from_stage_name)
-    agent_configs = environs_helper.get_env_agent_config(request, from_env_name, from_stage_name)
-    script_configs = environs_helper.get_env_script_config(request, from_env_name, from_stage_name)
-    alarms_configs = environs_helper.get_env_alarms_config(request, from_env_name, from_stage_name)
-    metrics_configs = environs_helper.get_env_metrics_config(request, from_env_name,
-                                                             from_stage_name)
-    webhooks_configs = environs_helper.get_env_hooks_config(request, from_env_name, from_stage_name)
-    promotes_configs = environs_helper.get_env_promotes_config(request, from_env_name,
-                                                               from_stage_name)
+def clone_from_stage_name(
+    request,
+    env_name,
+    stage_name,
+    from_env_name,
+    from_stage_name,
+    stage_type,
+    description,
+    external_id,
+    project_name,
+):
+    from_stage = environs_helper.get_env_by_stage(
+        request, from_env_name, from_stage_name
+    )
+    agent_configs = environs_helper.get_env_agent_config(
+        request, from_env_name, from_stage_name
+    )
+    script_configs = environs_helper.get_env_script_config(
+        request, from_env_name, from_stage_name
+    )
+    alarms_configs = environs_helper.get_env_alarms_config(
+        request, from_env_name, from_stage_name
+    )
+    metrics_configs = environs_helper.get_env_metrics_config(
+        request, from_env_name, from_stage_name
+    )
+    webhooks_configs = environs_helper.get_env_hooks_config(
+        request, from_env_name, from_stage_name
+    )
+    promotes_configs = environs_helper.get_env_promotes_config(
+        request, from_env_name, from_stage_name
+    )
 
     new_data = {}
-    new_data['envName'] = env_name
-    new_data['stageName'] = stage_name
-    new_data['description'] = description
-    new_data['buildName'] = from_stage['buildName']
-    new_data['branch'] = from_stage['branch']
-    new_data['chatroom'] = from_stage['chatroom']
-    new_data['maxParallel'] = from_stage['maxParallel']
-    new_data['priority'] = from_stage['priority']
-    new_data['stuckThreshold'] = from_stage['stuckThreshold']
-    new_data['successThreshold'] = from_stage['successThreshold']
-    new_data['acceptanceType'] = from_stage['acceptanceType']
-    new_data['emailRecipients'] = from_stage['emailRecipients']
-    new_data['notifyAuthors'] = from_stage['notifyAuthors']
-    new_data['watchRecipients'] = from_stage['watchRecipients']
-    new_data['maxDeployNum'] = from_stage['maxDeployNum']
-    new_data['maxDeployDay'] = from_stage['maxDeployDay']
-    new_data['overridePolicy'] = from_stage['overridePolicy']
-    new_data['stageType'] = DEFAULT_STAGE_TYPE
-    new_data['externalId'] = external_id
+    new_data["envName"] = env_name
+    new_data["stageName"] = stage_name
+    new_data["description"] = description
+    new_data["buildName"] = from_stage["buildName"]
+    new_data["branch"] = from_stage["branch"]
+    new_data["chatroom"] = from_stage["chatroom"]
+    new_data["maxParallel"] = from_stage["maxParallel"]
+    new_data["priority"] = from_stage["priority"]
+    new_data["stuckThreshold"] = from_stage["stuckThreshold"]
+    new_data["successThreshold"] = from_stage["successThreshold"]
+    new_data["acceptanceType"] = from_stage["acceptanceType"]
+    new_data["emailRecipients"] = from_stage["emailRecipients"]
+    new_data["notifyAuthors"] = from_stage["notifyAuthors"]
+    new_data["watchRecipients"] = from_stage["watchRecipients"]
+    new_data["groupMentionRecipients"] = from_stage["groupMentionRecipients"]
+    new_data["maxDeployNum"] = from_stage["maxDeployNum"]
+    new_data["maxDeployDay"] = from_stage["maxDeployDay"]
+    new_data["overridePolicy"] = from_stage["overridePolicy"]
+    new_data["stageType"] = stage_type
+    new_data["externalId"] = external_id
+    new_data["projectName"] = project_name
 
     new_stage = environs_helper.create_env(request, new_data)
 
     # now clone all the extra configs
     if agent_configs:
-        environs_helper.update_env_agent_config(request, env_name, stage_name, agent_configs)
+        environs_helper.update_env_agent_config(
+            request, env_name, stage_name, agent_configs
+        )
     if script_configs:
-        environs_helper.update_env_script_config(request, env_name, stage_name, script_configs)
+        environs_helper.update_env_script_config(
+            request, env_name, stage_name, script_configs
+        )
     if alarms_configs:
-        environs_helper.update_env_alarms_config(request, env_name, stage_name, alarms_configs)
+        environs_helper.update_env_alarms_config(
+            request, env_name, stage_name, alarms_configs
+        )
     if metrics_configs:
-        environs_helper.update_env_metrics_config(request, env_name, stage_name, metrics_configs)
+        environs_helper.update_env_metrics_config(
+            request, env_name, stage_name, metrics_configs
+        )
     if webhooks_configs:
-        environs_helper.update_env_hooks_config(request, env_name, stage_name, webhooks_configs)
+        environs_helper.update_env_hooks_config(
+            request, env_name, stage_name, webhooks_configs
+        )
     if promotes_configs:
-        environs_helper.update_env_promotes_config(request, env_name, stage_name, promotes_configs)
+        environs_helper.update_env_promotes_config(
+            request, env_name, stage_name, promotes_configs
+        )
 
     return new_stage
 
 
-def create_simple_stage(request, env_name, stage_name, description, external_id):
-    """ Create a new stage that does not require cloning an existing stage. Here, "simple" means that it does not require cloning."""
+def create_simple_stage(
+    request, env_name, stage_name, stage_type, description, external_id, project_name
+):
+    """Create a new stage that does not require cloning an existing stage. Here, "simple" means that it does not require cloning."""
     data = {}
-    data['envName'] = env_name
-    data['stageName'] = stage_name
-    data['description'] = description
-    data['externalId'] = external_id
-    data["stageType"] = DEFAULT_STAGE_TYPE
+    data["envName"] = env_name
+    data["stageName"] = stage_name
+    data["description"] = description
+    data["externalId"] = external_id
+    data["stageType"] = stage_type
+    data["projectName"] = project_name
     return environs_helper.create_env(request, data)
 
 
 def get_cluster_name(request, name, stage):
     env = environs_helper.get_env_by_stage(request, name, stage)
-    return env.get('clusterName')
+    return env.get("clusterName")
 
 
 def get_env_groups(request, name, stage):
-    groups = environs_helper.get_env_capacity(request, name, stage, capacity_type="GROUP")
+    groups = environs_helper.get_env_capacity(
+        request, name, stage, capacity_type="GROUP"
+    )
     return groups

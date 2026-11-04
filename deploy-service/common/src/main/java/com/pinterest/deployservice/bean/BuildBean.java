@@ -1,12 +1,12 @@
 /**
- * Copyright 2016 Pinterest, Inc.
+ * Copyright (c) 2016-2024 Pinterest, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *  
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *    
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,29 +16,9 @@
 package com.pinterest.deployservice.bean;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import org.apache.commons.lang.builder.ReflectionToStringBuilder;
-import org.hibernate.validator.constraints.NotEmpty;
+import javax.validation.constraints.NotEmpty;
+import org.apache.commons.lang3.builder.ReflectionToStringBuilder;
 
-/**
- * Keep the bean and table in sync
- * <p>
- * CREATE TABLE builds (
- * build_id         VARCHAR(30)         NOT NULL,
- * build_name       VARCHAR(64)         NOT NULL,
- * artifact_url     VARCHAR(512)        NOT NULL,
- * scm              VARCHAR(64),
- * scm_repo         VARCHAR(64)         NOT NULL,
- * scm_branch       VARCHAR(64)         NOT NULL,
- * scm_commit_7     VARCHAR(7)          NOT NULL,
- * scm_commit       VARCHAR(64)         NOT NULL,
- * commit_date      BIGINT              NOT NULL,
- * publish_info     VARCHAR(512)        NOT NULL,
- * publish_date     BIGINT              NOT NULL,
- * publisher        VARCHAR(64),
- * scm_info         VARCHAR(512),
- * PRIMARY KEY    (build_id)
- * );
- */
 public class BuildBean implements Updatable {
     @JsonProperty("id")
     private String build_id;

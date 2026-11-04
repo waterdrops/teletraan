@@ -13,15 +13,20 @@
 # limitations under the License.
 
 
-from deploy_board.settings import IS_PINTEREST, SERVICE_RATELIMIT_CONFIG_URL, \
-                                  STATSBOARD_API_FORMAT, RATELIMIT_ENABLED_METRIC_FORMAT, \
-                                  ENABLING_SERVICE_RATELIMIT_URL, KAFKA_MSGS_DELIVERED_METRIC, \
-                                  DASHBOARD_URL_ENDPOINT_FORMAT
-import urllib2
+from deploy_board.settings import (
+    SERVICE_RATELIMIT_CONFIG_URL,
+    STATSBOARD_API_FORMAT,
+    RATELIMIT_ENABLED_METRIC_FORMAT,
+    ENABLING_SERVICE_RATELIMIT_URL,
+    KAFKA_MSGS_DELIVERED_METRIC,
+    STATSBOARD_HUB_URL_ENDPOINT_FORMAT,
+    STATSBOARD_HOST_TYPE_API_FORMAT,
+)
+import urllib.request
 import simplejson as json
-import socket
 import time
 import os
+
 
 class ServiceAddOn(object):
     """
@@ -43,19 +48,23 @@ class ServiceAddOn(object):
     # The default timeout for add-on related API calls.
     REQUEST_TIMEOUT_SECS = 30
 
-    def __init__(self,
-                 serviceName=None,
-                 addOnName=None,
-                 buttonUrl=None,
-                 tagHoverInfo=None,
-                 tagInfo=None,
-                 state=UNKNOWN):
+    def __init__(
+        self,
+        serviceName=None,
+        addOnName=None,
+        buttonUrl=None,
+        tagHoverInfo=None,
+        tagInfo=None,
+        state=UNKNOWN,
+        promoText=None,
+    ):
         self.serviceName = serviceName
         self.addOnName = addOnName
         self.buttonUrl = buttonUrl
         self.tagHoverInfo = tagHoverInfo
         self.tagInfo = tagInfo
         self.state = state
+        self.promoText = promoText
 
 
 class RatelimitingAddOn(ServiceAddOn):
@@ -66,31 +75,39 @@ class RatelimitingAddOn(ServiceAddOn):
     # The number of minutes back to check for ratelimiting enabled data.
     MINUTES_BACK_TO_SEARCH = "2"
 
-    def __init__(self,
-                 serviceName=None,
-                 buttonUrl=None,
-                 tagHoverInfo=None,
-                 tagInfo=None,
-                 state=ServiceAddOn.UNKNOWN,
-                 rateLimitingReport=None):
-        ServiceAddOn.__init__(self,
-                              serviceName=serviceName,
-                              addOnName="rate_limiting",
-                              buttonUrl=buttonUrl,
-                              tagHoverInfo=tagHoverInfo,
-                              tagInfo=tagInfo,
-                              state=state)
+    def __init__(
+        self,
+        serviceName=None,
+        buttonUrl=None,
+        tagHoverInfo=None,
+        tagInfo=None,
+        state=ServiceAddOn.UNKNOWN,
+        rateLimitingReport=None,
+    ):
+        ServiceAddOn.__init__(
+            self,
+            serviceName=serviceName,
+            addOnName="rate_limiting",
+            buttonUrl=buttonUrl,
+            tagHoverInfo=tagHoverInfo,
+            tagInfo=tagInfo,
+            state=state,
+        )
 
         if state == ServiceAddOn.UNKNOWN or rateLimitingReport is None:
             return
 
         tagHoverInfo_ = "{health} {hosts} {linkBlurb} {questions}"
         health = ""
-        hostsFormat = "Hosts on: {on}/{total}, off: {off}/{total}, unknown: {unknown}/{total}."
-        hosts = hostsFormat.format(on=rateLimitingReport.totalHostsOn,
-                                   off=rateLimitingReport.totalHostsOff,
-                                   unknown=rateLimitingReport.totalHostsUnknown,
-                                   total=rateLimitingReport.totalHosts)
+        hostsFormat = (
+            "Hosts on: {on}/{total}, off: {off}/{total}, unknown: {unknown}/{total}."
+        )
+        hosts = hostsFormat.format(
+            on=rateLimitingReport.totalHostsOn,
+            off=rateLimitingReport.totalHostsOff,
+            unknown=rateLimitingReport.totalHostsUnknown,
+            total=rateLimitingReport.totalHosts,
+        )
         linkBlurb = ""
         questions = "Questions @cmp"
 
@@ -101,7 +118,9 @@ class RatelimitingAddOn(ServiceAddOn):
             health = "Things look good here -- "
             linkBlurb = " Click to see current rate limiting configuration."
             tagInfo_ = tagInfo_.format(status="ON")
-            buttonUrl_ = "{url}#{serviceName}".format(url=SERVICE_RATELIMIT_CONFIG_URL, serviceName=serviceName)
+            buttonUrl_ = "{url}#{serviceName}".format(
+                url=SERVICE_RATELIMIT_CONFIG_URL, serviceName=serviceName
+            )
 
         elif state == ServiceAddOn.OFF:
             health = "Looks like ratelimiting is turned off. "
@@ -109,13 +128,17 @@ class RatelimitingAddOn(ServiceAddOn):
             tagInfo_ = tagInfo_.format(status="OFF")
             buttonUrl_ = ENABLING_SERVICE_RATELIMIT_URL
 
-        else: # Partial
+        else:  # Partial
             health = "Rate limiting seems to be ON only on some of the hosts here. "
             linkBlurb = " Click to see current rate limiting configuration."
             tagInfo_ = tagInfo_.format(status="PARTIAL")
-            buttonUrl_ = "{url}#{serviceName}".format(url=SERVICE_RATELIMIT_CONFIG_URL, serviceName=serviceName)
+            buttonUrl_ = "{url}#{serviceName}".format(
+                url=SERVICE_RATELIMIT_CONFIG_URL, serviceName=serviceName
+            )
 
-        tagHoverInfo_ = tagHoverInfo_.format(health=health, hosts=hosts, linkBlurb=linkBlurb, questions=questions)
+        tagHoverInfo_ = tagHoverInfo_.format(
+            health=health, hosts=hosts, linkBlurb=linkBlurb, questions=questions
+        )
 
         self.tagHoverInfo = tagHoverInfo if tagHoverInfo else tagHoverInfo_
         self.buttonUrl = buttonUrl if buttonUrl else buttonUrl_
@@ -133,49 +156,62 @@ class KafkaLoggingAddOn(ServiceAddOn):
     MAX_LOGNAMES_IN_HEALTH_QUERY = 10
     MAX_TOPICS_IN_HEALTH_QUERY = 10
 
-    def __init__(self,
-                 logHealthReport=None,
-                 serviceName=None,
-                 buttonUrl=None,
-                 tagHoverInfo="Click to check logging to Kafka from this stage.",
-                 tagInfo="Log Check",
-                 state=ServiceAddOn.UNKNOWN):
-        ServiceAddOn.__init__(self,
-                              serviceName=serviceName,
-                              addOnName="kafka_logging",
-                              buttonUrl=buttonUrl,
-                              tagHoverInfo=tagHoverInfo,
-                              tagInfo=tagInfo,
-                              state=state)
+    def __init__(
+        self,
+        logHealthReport=None,
+        serviceName=None,
+        buttonUrl=None,
+        tagHoverInfo="Click to check logging to Kafka from this stage.",
+        tagInfo="Log Check",
+        state=ServiceAddOn.UNKNOWN,
+    ):
+        ServiceAddOn.__init__(
+            self,
+            serviceName=serviceName,
+            addOnName="kafka_logging",
+            buttonUrl=buttonUrl,
+            tagHoverInfo=tagHoverInfo,
+            tagInfo=tagInfo,
+            state=state,
+        )
 
         self.logHealthReport = logHealthReport
 
+
 class DashboardAddOn(ServiceAddOn):
     """
-    Encapsulates the information managed by the statsboard dashboard add-on tag.
+    Encapsulates the information managed by the statsboard hub add-on tag.
     """
 
-    def __init__(self,
-                 dashboardStateReport=None,
-                 serviceName=None,
-                 buttonUrl=None,
-                 tagHoverInfo="Click to see the metrics dashboard for this service.",
-                 tagInfo="Metrics Dashboard",
-                 state=ServiceAddOn.UNKNOWN):
-        ServiceAddOn.__init__(self,
-                              serviceName=serviceName,
-                              addOnName="dashboard",
-                              buttonUrl=buttonUrl,
-                              tagHoverInfo=tagHoverInfo,
-                              tagInfo=tagInfo,
-                              state=state)
+    def __init__(
+        self,
+        dashboardStateReport=None,
+        serviceName=None,
+        buttonUrl=None,
+        tagHoverInfo="Click to see the Observability Hub for this service.",
+        tagInfo="Observability Hub",
+        state=ServiceAddOn.UNKNOWN,
+    ):
+        ServiceAddOn.__init__(
+            self,
+            serviceName=serviceName,
+            addOnName="dashboard",
+            buttonUrl=buttonUrl,
+            tagHoverInfo=tagHoverInfo,
+            tagInfo=tagInfo,
+            state=state,
+            promoText=None,
+        )
         self.dashboardStateReport = dashboardStateReport
         if dashboardStateReport is not None:
             self.state = dashboardStateReport.state
 
         self.buttonUrl = buttonUrl
-        if self.buttonUrl is None and serviceName is not None:
-            self.buttonUrl = DASHBOARD_URL_ENDPOINT_FORMAT.format(serviceName=serviceName)
+        if self.buttonUrl is None and dashboardStateReport.hostType is not None:
+            self.buttonUrl = STATSBOARD_HUB_URL_ENDPOINT_FORMAT.format(
+                hostType=dashboardStateReport.hostType
+            )
+
 
 class LogHealthReport(object):
     """
@@ -190,15 +226,17 @@ class LogHealthReport(object):
     # The default number of minutes back to check for a log.
     MINS_BACK_TO_CHECK = "120"
 
-    def __init__(self,
-                 env=None,
-                 stage=None,
-                 topics=[],
-                 lognames=[],
-                 state=None,
-                 lastLogMinutesAgo=None,
-                 latestLogAgoMinsBeforeWarning=MINS_BACK_TO_CHECK,
-                 errorMsg=""):
+    def __init__(
+        self,
+        env=None,
+        stage=None,
+        topics=[],
+        lognames=[],
+        state=None,
+        lastLogMinutesAgo=None,
+        latestLogAgoMinsBeforeWarning=MINS_BACK_TO_CHECK,
+        errorMsg="",
+    ):
         self.env = env
         self.stage = stage
         self.topics = topics
@@ -213,25 +251,31 @@ class RateLimitingReport(object):
     """
     The results of a ratelimiting status query.  Used by the rate limiting add on.
     """
-    def __init__(self,
-                 totalHostsOn=None,
-                 totalHostsOff=None,
-                 totalHostsUnknown=None,
-                 totalHosts=None,
-                 state=ServiceAddOn.UNKNOWN):
+
+    def __init__(
+        self,
+        totalHostsOn=None,
+        totalHostsOff=None,
+        totalHostsUnknown=None,
+        totalHosts=None,
+        state=ServiceAddOn.UNKNOWN,
+    ):
         self.totalHostsOn = totalHostsOn
         self.totalHostsOff = totalHostsOff
         self.totalHostsUnknown = totalHostsUnknown
         self.totalHosts = totalHosts
         self.state = state
 
+
 class DashboardStateReport(object):
     """
     Encapsulates the state of a dashboard tag for a given service.
     """
-    def __init__(self,
-                 state=ServiceAddOn.UNKNOWN):
+
+    def __init__(self, hostType=None, state=ServiceAddOn.UNKNOWN):
+        self.hostType = hostType
         self.state = state
+
 
 def getRatelimitingReport(serviceName, agentStats):
     """
@@ -275,9 +319,11 @@ def getRatelimitingReport(serviceName, agentStats):
     if totalHosts > 1:
         commonHostPrefix += "*"
 
-    apiUrl = STATSBOARD_API_FORMAT.format(metric=metricStr,
-                                          tags="host=%s" % commonHostPrefix,
-                                          startTime="-%smin" % RatelimitingAddOn.MINUTES_BACK_TO_SEARCH)
+    apiUrl = STATSBOARD_API_FORMAT.format(
+        metric=metricStr,
+        tags="host=%s" % commonHostPrefix,
+        startTime="-%smin" % RatelimitingAddOn.MINUTES_BACK_TO_SEARCH,
+    )
 
     try:
         statsboardData = restrictToHostsOnCurrentStage(getStatsboardData(apiUrl), hosts)
@@ -293,7 +339,7 @@ def getRatelimitingReport(serviceName, agentStats):
                 totalHostsOn += 1
             else:
                 totalHostsOff += 1
-    except:
+    except Exception:
         # In any error we abstain from making a claim, including request timeouts.
         return RateLimitingReport(state=ServiceAddOn.UNKNOWN)
 
@@ -301,10 +347,12 @@ def getRatelimitingReport(serviceName, agentStats):
         return RateLimitingReport(state=ServiceAddOn.UNKNOWN)
 
     totalHostsUnknown += totalHosts - (totalHostsUnknown + totalHostsOff + totalHostsOn)
-    rateLimitingReport = RateLimitingReport(totalHosts=totalHosts,
-                                            totalHostsOn=totalHostsOn,
-                                            totalHostsOff=totalHostsOff,
-                                            totalHostsUnknown=totalHostsUnknown)
+    rateLimitingReport = RateLimitingReport(
+        totalHosts=totalHosts,
+        totalHostsOn=totalHostsOn,
+        totalHostsOff=totalHostsOff,
+        totalHostsUnknown=totalHostsUnknown,
+    )
 
     if totalHostsOn > 0 and totalHostsOff == 0:
         rateLimitingReport.state = ServiceAddOn.ON
@@ -336,31 +384,37 @@ def getLatestLogUnixTime(topics, lognames, hostsOnStage, commonHostPrefix):
     :param commonHostPrefix:
     :return:
     """
-    topicsApiStr = '|'.join(topics)
-    lognamesApiStr = '|'.join(lognames)
+    topicsApiStr = "|".join(topics)
+    lognamesApiStr = "|".join(lognames)
     numHostsOnStage = len(hostsOnStage)
 
     if numHostsOnStage > 1:
         commonHostPrefix += "*"
 
-    metricTag = "host=%s,topic=%s,logname=%s" % (commonHostPrefix, topicsApiStr, lognamesApiStr)
+    metricTag = "host=%s,topic=%s,logname=%s" % (
+        commonHostPrefix,
+        topicsApiStr,
+        lognamesApiStr,
+    )
     startTime = "-%smin" % LogHealthReport.MINS_BACK_TO_CHECK
-    apiUrl = STATSBOARD_API_FORMAT.format(metric=KAFKA_MSGS_DELIVERED_METRIC,
-                                          tags=metricTag,
-                                          startTime=startTime)
+    apiUrl = STATSBOARD_API_FORMAT.format(
+        metric=KAFKA_MSGS_DELIVERED_METRIC, tags=metricTag, startTime=startTime
+    )
 
     earliestMessages = []
     try:
-        statsboardData = restrictToHostsOnCurrentStage(getStatsboardData(apiUrl), hostsOnStage)
+        statsboardData = restrictToHostsOnCurrentStage(
+            getStatsboardData(apiUrl), hostsOnStage
+        )
         for dataSlice in statsboardData:
             if "datapoints" not in dataSlice:
                 continue
             dataPoints = dataSlice["datapoints"]
-            for k in reversed(range(len(dataPoints))):
+            for k in reversed(list(range(len(dataPoints)))):
                 if dataPoints[k][1] > 0:
                     earliestMessages.append(dataPoints[k])
                     break
-    except:
+    except Exception:
         return None
 
     if not statsboardDataConsistent(statsboardData, hostsOnStage):
@@ -370,6 +424,7 @@ def getLatestLogUnixTime(topics, lognames, hostsOnStage, commonHostPrefix):
         return -1
 
     return max(earliestMessages, key=lambda d: d[0])[0]
+
 
 def getLogHealthReport(configStr, report):
     """
@@ -389,8 +444,10 @@ def getLogHealthReport(configStr, report):
     total_hosts = len(report.agentStats)
 
     if total_hosts == 0:
-        return LogHealthReport(state=LogHealthReport.ERROR,
-                               errorMsg="Could not find any hosts in this stage")
+        return LogHealthReport(
+            state=LogHealthReport.ERROR,
+            errorMsg="Could not find any hosts in this stage",
+        )
 
     if not configStr or commonHostPrefix == "":
         # No claim if no config string, no common prefix
@@ -403,13 +460,17 @@ def getLogHealthReport(configStr, report):
     lognames = list(set([x.strip() for x in lognamesStr.split(",")]))
 
     if not logCheckInputValid(topics, lognames):
-        return LogHealthReport(topics=topics,
-                               lognames=lognames,
-                               state=LogHealthReport.ERROR,
-                               errorMsg="Invalid topics or lognames")
+        return LogHealthReport(
+            topics=topics,
+            lognames=lognames,
+            state=LogHealthReport.ERROR,
+            errorMsg="Invalid topics or lognames",
+        )
 
     hostsOnStage = getHosts(report.agentStats)
-    lastLogUnixTime = getLatestLogUnixTime(topics, lognames, hostsOnStage, commonHostPrefix)
+    lastLogUnixTime = getLatestLogUnixTime(
+        topics, lognames, hostsOnStage, commonHostPrefix
+    )
     lastLogMinutesAgo = None
     errorMsg = ""
 
@@ -422,29 +483,34 @@ def getLogHealthReport(configStr, report):
         state = LogHealthReport.STABLE
         lastLogMinutesAgo = int((time.time() - lastLogUnixTime) / 60 + 1)
 
-    return LogHealthReport(env=report.envName,
-                           stage=report.stageName,
-                           topics=topics,
-                           lognames=lognames,
-                           state=state,
-                           lastLogMinutesAgo=lastLogMinutesAgo,
-                           errorMsg=errorMsg)
+    return LogHealthReport(
+        env=report.envName,
+        stage=report.stageName,
+        topics=topics,
+        lognames=lognames,
+        state=state,
+        lastLogMinutesAgo=lastLogMinutesAgo,
+        errorMsg=errorMsg,
+    )
 
-def getDashboardReport(serviceName, report):
-    try:
-      dashboardPage = urllib2.urlopen(DASHBOARD_URL_ENDPOINT_FORMAT.format(serviceName=serviceName), timeout=ServiceAddOn.REQUEST_TIMEOUT_SECS)
-    except:
-      return DashboardStateReport(state=ServiceAddOn.UNKNOWN)
 
-    dashboardPageHtml = dashboardPage.read()
+def getDashboardReport(env, stage, metricsDashboardUrl, isSidecar):
     state = ServiceAddOn.DEFAULT
-    dashboardDneString = "%s dashboard does not exist" % serviceName
-    if dashboardDneString in dashboardPageHtml:
-      state = ServiceAddOn.UNKNOWN
-    return DashboardStateReport(state=state)
+    hostType = None
+    if metricsDashboardUrl is None:
+        if isSidecar:
+            state = ServiceAddOn.UNKNOWN
+        else:
+            try:
+                hostType = getStatsboardHostType(env, stage)
+                if hostType is None:
+                    state = ServiceAddOn.UNKNOWN
+            except Exception:
+                state = ServiceAddOn.UNKNOWN
+    return DashboardStateReport(state=state, hostType=hostType)
+
 
 def getRatelimitingAddOn(serviceName, report):
-
     # Some special-casing - in the future it should be possible to retrieve a service
     # name from environment information.
     if serviceName == "helloworlddummyservice-server":
@@ -455,26 +521,36 @@ def getRatelimitingAddOn(serviceName, report):
 
     serviceName = serviceName.lower()
     rateLimitingReport = getRatelimitingReport(serviceName, report.agentStats)
-    return RatelimitingAddOn(serviceName=serviceName,
-                             state=rateLimitingReport.state,
-                             rateLimitingReport=rateLimitingReport)
+    return RatelimitingAddOn(
+        serviceName=serviceName,
+        state=rateLimitingReport.state,
+        rateLimitingReport=rateLimitingReport,
+    )
+
 
 def getKafkaLoggingAddOn(serviceName, report, configStr=None):
     serviceName = serviceName.lower()
     logHealthReport = getLogHealthReport(configStr, report)
     url = "/env/%s/%s/check_log_status" % (report.envName, report.stageName)
-    return KafkaLoggingAddOn(serviceName=serviceName,
-                             buttonUrl=url,
-                             state=ServiceAddOn.DEFAULT,
-                             logHealthReport=logHealthReport)
+    return KafkaLoggingAddOn(
+        serviceName=serviceName,
+        buttonUrl=url,
+        state=ServiceAddOn.DEFAULT,
+        logHealthReport=logHealthReport,
+    )
 
-def getDashboardAddOn(serviceName, metrics_dashboard_url, report):
-    serviceName = serviceName.lower()
-    dashboardStateReport = getDashboardReport(serviceName, report)
 
-    return DashboardAddOn(serviceName=serviceName,
-                          buttonUrl = metrics_dashboard_url,
-                          dashboardStateReport=dashboardStateReport)
+def getDashboardAddOn(serviceName, metricsDashboardUrl, report, isSidecar):
+    dashboardStateReport = getDashboardReport(
+        report.envName, report.stageName, metricsDashboardUrl, isSidecar
+    )
+
+    return DashboardAddOn(
+        serviceName=serviceName,
+        buttonUrl=metricsDashboardUrl,
+        dashboardStateReport=dashboardStateReport,
+    )
+
 
 """ --- Utility functions live below here --- """
 
@@ -494,8 +570,10 @@ def logCheckInputValid(topics, lognames):
     if len(topics) == 0 or len(lognames) == 0:
         return False
 
-    if len(topics) > KafkaLoggingAddOn.MAX_TOPICS_IN_HEALTH_QUERY or \
-            len(lognames) > KafkaLoggingAddOn.MAX_LOGNAMES_IN_HEALTH_QUERY:
+    if (
+        len(topics) > KafkaLoggingAddOn.MAX_TOPICS_IN_HEALTH_QUERY
+        or len(lognames) > KafkaLoggingAddOn.MAX_LOGNAMES_IN_HEALTH_QUERY
+    ):
         return False
 
     for i in range(len(topics)):
@@ -514,6 +592,7 @@ def logCheckInputValid(topics, lognames):
 
     return True
 
+
 def getCommonHostPrefix(agentStats):
     """
     Utility function returns the common prefix of all the hosts
@@ -531,12 +610,14 @@ def getCommonHostPrefix(agentStats):
 
     return os.path.commonprefix(hosts)
 
+
 def getHosts(agentStats):
     hosts = []
     for agentStat in agentStats:
         if "hostName" in agentStat.agent:
             hosts.append(agentStat.agent["hostName"])
     return hosts
+
 
 def statsboardDataConsistent(statsboardData, hostsOnStage):
     """
@@ -581,6 +662,7 @@ def statsboardDataConsistent(statsboardData, hostsOnStage):
 
     return True
 
+
 def restrictToHostsOnCurrentStage(statsboardData, hostsOnCurrentStage):
     """
     Removes data for hosts not on current stage from statsboardData, and
@@ -601,6 +683,7 @@ def restrictToHostsOnCurrentStage(statsboardData, hostsOnCurrentStage):
 
     return newData
 
+
 def getStatsboardData(apiUrl):
     """
     Given a statsboard API url, returns a list of lists containing
@@ -609,14 +692,25 @@ def getStatsboardData(apiUrl):
     :param apiUrl:
     :return:
     """
-    url = urllib2.urlopen(apiUrl, timeout=ServiceAddOn.REQUEST_TIMEOUT_SECS)
-    j = json.loads(url.read())
+    url = urllib.request.urlopen(apiUrl, timeout=ServiceAddOn.REQUEST_TIMEOUT_SECS)
+    j = json.loads(url.read().decode("utf-8"))
     data = []
     for i in range(len(j)):
         data.append(j[i])
     return data
 
 
+def getStatsboardHostType(env, stage):
+    """
+    Given teletraan environment and stage, returns the first hostType from
+    statsboard data.
 
-
-
+    :param env:
+    :param stage:
+    :return:
+    """
+    apiUrl = STATSBOARD_HOST_TYPE_API_FORMAT.format(env=env, stage=stage)
+    url = urllib.request.urlopen(apiUrl, timeout=ServiceAddOn.REQUEST_TIMEOUT_SECS)
+    j = json.loads(url.read().decode("utf-8"))
+    hostType = j[0] if len(j) > 0 else None
+    return hostType

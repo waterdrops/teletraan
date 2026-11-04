@@ -1,12 +1,12 @@
 /**
- * Copyright 2016 Pinterest, Inc.
+ * Copyright (c) 2016-2024 Pinterest, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *  
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *    
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,16 +15,21 @@
  */
 package com.pinterest.deployservice.bean;
 
-import org.apache.commons.lang.builder.ReflectionToStringBuilder;
-import org.hibernate.validator.constraints.NotEmpty;
-
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
+import javax.validation.constraints.NotEmpty;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.apache.commons.lang3.builder.ReflectionToStringBuilder;
 
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+@Data
 public class PingRequestBean {
-    @NotEmpty
-    private String hostId;
+    @NotEmpty private String hostId;
 
     private String hostName;
 
@@ -34,85 +39,21 @@ public class PingRequestBean {
 
     private String availabilityZone;
 
+    private String ec2Tags;
+
     private String agentVersion;
 
     private EnvType stageType;
 
     private Set<String> groups;
 
+    private String accountId;
+
+    private NormandieStatus normandieStatus;
+
+    private KnoxStatus knoxStatus;
+
     private List<PingReportBean> reports;
-
-    public String getHostId() {
-        return hostId;
-    }
-
-    public void setHostId(String hostId) {
-        this.hostId = hostId;
-    }
-
-    public String getHostName() {
-        return hostName;
-    }
-
-    public void setHostName(String hostName) {
-        this.hostName = hostName;
-    }
-
-    public String getHostIp() {
-        return hostIp;
-    }
-
-    public void setHostIp(String hostIp) {
-        this.hostIp = hostIp;
-    }
-
-    public String getAutoscalingGroup() {
-        return this.autoscalingGroup;
-    }
-
-    public void setAutoscalingGroup(String autoscalingGroup) {
-        this.autoscalingGroup = autoscalingGroup;
-    }
-
-    public String getAvailabilityZone() {
-        return availabilityZone;
-    }
-
-    public void setAvailabilityZone(String availabilityZone){
-        this.availabilityZone = availabilityZone;
-    }
-
-    public String getAgentVersion() {
-        return agentVersion;
-    }
-
-    public void setAgentVersion(String agentVersion){
-        this.agentVersion = agentVersion;
-    }
-
-    public EnvType getStageType() {
-        return stageType;
-    }
-
-    public void setStageType(EnvType stageType) {
-        this.stageType = stageType;
-    }
-    
-    public Set<String> getGroups() {
-        return groups;
-    }
-
-    public void setGroups(Set<String> groups) {
-        this.groups = groups;
-    }
-
-    public List<PingReportBean> getReports() {
-        return reports;
-    }
-
-    public void setReports(List<PingReportBean> reports) {
-        this.reports = reports;
-    }
 
     @Override
     public String toString() {

@@ -1,6 +1,6 @@
 /**
- * Common Components 
- *  
+ * Common Components
+ *
  */
 
 
@@ -159,7 +159,7 @@ Vue.component('label-select', {
   template: '<div v-bind:class="formStyle">\
   <label class="deployToolTip control-label col-xs-2" data-toggle="tooltip" v-bind:title="title">{{label}}</label>\
   <div v-bind:class="width"><div v-bind:class="groupStyle">\
-  <select class="form-control" v-on:change="updateValue($event.target.value)" required="true">\
+  <select :disabled="disabled" class="form-control" v-on:change="updateValue($event.target.value)" required="true">\
   <option v-for="option in selectoptions" v-bind:value="option.value" v-bind:selected="option.isSelected">{{option.text}}</option></select>\
   <span v-if="showhelp" class="input-group-btn">\
     <button class="deployToolTip btn btn-default" type="button" data-toggle="tooltip" title="click to see more information" v-on:click="helpClick">\
@@ -167,7 +167,7 @@ Vue.component('label-select', {
     </button>\
   </span></div>\
   </div></div>',
-  props: ['label', 'title', 'selectoptions', 'showhelp', 'small'],
+  props: ['label', 'title', 'selectoptions', 'showhelp', 'small', 'disabled'],
   data: function () {
     return {
       width: this.small ? 'col-xs-4' : 'col-xs-10',
@@ -187,10 +187,66 @@ Vue.component('label-select', {
 
 
 /**
+ * An improved version for label-select
+ */
+Vue.component('label-select2', {
+  template:
+  `<div>
+    <label class="deployToolTip control-label col-xs-2" data-toggle="tooltip" :title="title">{{label}}</label>
+    <div :class="colClass">
+      <div :class="groupStyle">
+        <select class="form-control" required="true"
+            :value="selected" @change="$emit('input', $event.target.value)"
+            :disabled="disabled">
+          <option v-for="option in options" :value="option.value" :selected="option.value == selected">{{option.text}}</option>
+        </select>
+        <span v-if="showHelp" class="input-group-btn">
+          <button class="deployToolTip btn btn-default" type="button" data-toggle="tooltip" title="click to see more information" @click="helpClick">
+            <span class="glyphicon glyphicon-question-sign"></span>
+          </button>
+        </span>
+      </div>
+    </div>
+  </div>`,
+  props: ['label', 'title', 'showHelp', 'colClass', 'disabled', 'options', 'selected'],
+  data: function () {
+    return {
+      groupStyle: this.showHelp ? 'input-group' : ''
+    }
+  },
+  methods: {
+    helpClick: function () {
+      this.$emit('help-clicked')
+    }
+  }
+});
+
+
+/**
+ * A basic checkbox that allows to bind with boolean v-model
+ */
+Vue.component('base-checkbox', {
+    template: `
+    <input type="checkbox"
+      :checked="checked" :disabled="!enabled"
+      @change="$emit('input', $event.target.checked)"
+    >`,
+    model: {
+      prop: 'checked',
+      event: 'change'
+    },
+    props: {
+      checked: Boolean,
+      enabled: Boolean
+    }
+  })
+
+
+/**
  * A modal dialog box. The input event contains a the parameter where true means the user confirms
  */
 Vue.component('modal', {
-  template: '<div v-bind:id="id" class="modal fade">\
+  template: '<div v-bind:id="id" class="modal fade" style="display: none;">\
     <div class="modal-dialog">\
         <div class="modal-content">\
                 <div class="modal-header">\
@@ -251,16 +307,61 @@ Vue.component("panel-heading", {
   }
 });
 
-
-
 /**
  * A form table
  */
 Vue.component("help-table", {
   template:'<div class="form-group"><div class="col-xs-2"></div><div class="col-xs-10"><table class="table table-condensed table-striped table-hover">\
-    <tbody><tr><th v-for="header in headers" v-bind:class="header.headerClass"><p><i>{{header.name}}</p></i></th></tr>\
+    <tbody><tr><th v-for="header in headers" v-bind:class="header.headerClass"><p><i>{{header.name}}</i></p></th></tr>\
     <tr v-for="row in data">\
-      <td v-for="key in keys"><p><i>{{ row[key] }}</p></i></td>\
+      <td v-for="key in keys"><p><i>{{ row[key] }}</i></p></td>\
     </tr></tbody></table></div></div>',
   props: ['headers', 'data', 'keys']
 })
+
+/**
+ * A form inline warning alert
+ */
+ Vue.component("form-warning", {
+    template:'<div class="form-group"><div class="col-xs-2"></div>\
+    <div class="col-xs-10">\
+        <div class="alert alert-warning" style="white-space: pre-wrap;">\
+            <button v-if="dismissible" type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>\
+            <strong>Warning!</strong> {{ alertText }}</div>\
+    </div></div>',
+    props: ['dismissible', 'alertText']
+  })
+
+/**
+ * A form inline error alert
+ */
+ Vue.component("form-danger", {
+    template:'<div class="form-group"><div class="col-xs-2"></div>\
+    <div class="col-xs-10">\
+        <div class="alert alert-danger" style="white-space: pre-wrap;">\
+            <button v-if="dismissible" type="button" class="close" data-dismiss="alert" aria-label="Close"><span aria-hidden="true">&times;</span></button>\
+            <strong>Danger!</strong> {{ alertText }}</div>\
+    </div></div>',
+    props: ['dismissible', 'alertText']
+  })
+
+
+/**
+ * pinfo warning banner
+ */
+Vue.component('deployservice-warning-banner', {
+    template: `<div v-if="hasPotentialConflicts" id="deployServiceBanner" class="alert alert-warning" role="alert" align="center">
+    This cluster has userdata which defines a ‘deploy_service’ value and a pinfo_role that isn’t ‘cmp_base’.
+    Please double check to make sure that this does not conflict with your Puppet server configuration.
+    <a target="_blank" :href="deployservicewikiurl">Instructions here.</a>
+    </div>`,
+    props: ['alluserdata', 'deployservicewikiurl'],
+    computed: {
+        hasPotentialConflicts: function() {
+            const externalFacts = this.alluserdata?.find(field => field.name == 'external_facts')?.value ?? "";
+            containsDeployService = /['"]deploy_service['"]:/.test(externalFacts);
+            const pinfoRole = this.alluserdata?.find(field => field.name === 'pinfo_role');
+            return pinfoRole?.value !== 'cmp_base' && containsDeployService;
+        },
+    }
+});

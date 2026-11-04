@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Pinterest, Inc.
+ * Copyright (c) 2016-2025 Pinterest, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,23 +17,26 @@ package com.pinterest.deployservice.handler;
 
 import com.pinterest.deployservice.ServiceContext;
 import com.pinterest.deployservice.bean.*;
+import com.pinterest.deployservice.buildtags.BuildTagsManager;
 import com.pinterest.deployservice.chat.ChatManager;
 import com.pinterest.deployservice.common.StateMachines;
 import com.pinterest.deployservice.common.WebhookDataFactory;
 import com.pinterest.deployservice.dao.*;
 import com.pinterest.deployservice.email.MailManager;
-import com.pinterest.deployservice.events.EventSender;
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.lang.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
+import com.pinterest.deployservice.events.DeployEvent;
+import com.pinterest.teletraan.universal.events.AppEventPublisher;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Metrics;
 import java.sql.Connection;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class CommonHandler {
     private static final Logger LOG = LoggerFactory.getLogger(CommonHandler.class);
@@ -44,11 +47,14 @@ public class CommonHandler {
     private UtilDAO utilDAO;
     private ScheduleDAO scheduleDAO;
     private ChatManager chatManager;
-    private EventSender sender;
+    private AppEventPublisher publisher;
     private MailManager mailManager;
     private ExecutorService jobPool;
     private DataHandler dataHandler;
     private String deployBoardUrlPrefix;
+    private Counter successCounter;
+    private Counter failureCounter;
+    private BuildTagsManager buildTagsManager;
 
     private final class FinishNotifyJob implements Callable<Void> {
         private EnvironBean envBean;
@@ -56,7 +62,11 @@ public class CommonHandler {
         private DeployBean newPartialDeployBean;
         private String buildId;
 
-        public FinishNotifyJob(EnvironBean envBean, DeployBean deployBean, DeployBean newPartialDeployBean, String buildId) {
+        public FinishNotifyJob(
+                EnvironBean envBean,
+                DeployBean deployBean,
+                DeployBean newPartialDeployBean,
+                String buildId) {
             this.envBean = envBean;
             this.deployBean = deployBean;
             this.newPartialDeployBean = newPartialDeployBean;
@@ -75,29 +85,44 @@ public class CommonHandler {
                 return;
             }
 
-            String color;
+            String color = state == DeployState.SUCCEEDING ? "green" : "red";
+
             if (state == DeployState.SUCCEEDING) {
-                color = "green";
-            } else {
-                color = "red";
+                successCounter.increment();
             }
 
             sendWatcherMessage(operator, envBean.getWatch_recipients(), message, color);
-            sendChatMessage(operator, envBean.getChatroom(), message, color);
+            sendChatMessage(
+                    operator,
+                    envBean.getChatroom(),
+                    message,
+                    color,
+                    envBean.getGroup_mention_recipients());
 
             if (state == DeployState.FAILING) {
                 String recipients = envBean.getEmail_recipients();
                 if (envBean.getNotify_authors() && !StringUtils.isEmpty(recipients)) {
-                    LOG.debug(String.format("Sending emails to %s for failed deploy: %s/%s", envBean.getEmail_recipients(), envBean.getEnv_name(), envBean.getStage_name()));
-                    String subject = String.format("%s/%s Deploy Failed.", envBean.getEnv_name(), envBean.getStage_name());
+                    LOG.debug(
+                            String.format(
+                                    "Sending emails to %s for failed deploy: %s/%s",
+                                    envBean.getEmail_recipients(),
+                                    envBean.getEnv_name(),
+                                    envBean.getStage_name()));
+                    String subject =
+                            String.format(
+                                    "%s/%s Deploy Failed.",
+                                    envBean.getEnv_name(), envBean.getStage_name());
                     sendEmailMessage(message, subject, recipients);
                 }
+                failureCounter.increment();
             }
         }
 
         public Void call() {
             try {
-                LOG.info("Start to work on FinishNotifyJob for deploy {}", deployBean.getDeploy_id());
+                LOG.info(
+                        "Start to work on FinishNotifyJob for deploy {}",
+                        deployBean.getDeploy_id());
                 sendMessage();
                 sendDeployEvents(deployBean, newPartialDeployBean, envBean);
                 LOG.info("Completed NoitfyJob for deploy {}", deployBean.getDeploy_id());
@@ -115,12 +140,25 @@ public class CommonHandler {
         agentDAO = serviceContext.getAgentDAO();
         utilDAO = serviceContext.getUtilDAO();
         scheduleDAO = serviceContext.getScheduleDAO();
-        sender = serviceContext.getEventSender();
+        publisher = serviceContext.getAppEventPublisher();
         chatManager = serviceContext.getChatManager();
         mailManager = serviceContext.getMailManager();
+        buildTagsManager = serviceContext.getBuildTagsManager();
         jobPool = serviceContext.getJobPool();
         dataHandler = new DataHandler(serviceContext);
         deployBoardUrlPrefix = serviceContext.getDeployBoardUrlPrefix();
+        initializeMetrics();
+    }
+
+    private void initializeMetrics() {
+        successCounter =
+                Counter.builder("deploys.success.count")
+                        .description("Count of successful deploys")
+                        .register(Metrics.globalRegistry);
+        failureCounter =
+                Counter.builder("deploys.failure.count")
+                        .description("Count of failed deploys")
+                        .register(Metrics.globalRegistry);
     }
 
     public String getDeployAction(DeployType deployType) {
@@ -133,44 +171,60 @@ public class CommonHandler {
         return action;
     }
 
-    String generateMessage(String buildId, EnvironBean envBean, DeployState state, DeployBean deployBean) throws Exception {
+    String generateMessage(
+            String buildId, EnvironBean envBean, DeployState state, DeployBean deployBean)
+            throws Exception {
         DeployType deployType = deployBean.getDeploy_type();
         BuildBean buildBean = buildDAO.getById(buildId);
-        String webLink = deployBoardUrlPrefix + String.format("/env/%s/%s/deploy/",
-            envBean.getEnv_name(),
-            envBean.getStage_name());
+        String webLink =
+                deployBoardUrlPrefix
+                        + String.format(
+                                "/env/%s/%s/deploy/",
+                                envBean.getEnv_name(), envBean.getStage_name());
+
+        TagBean tagBean = buildTagsManager.getEffectiveBuildTag(buildBean);
 
         String action = getDeployAction(deployType);
         if (state == DeployState.SUCCEEDING) {
             // TODO this is Slack specific, screw hipchat for now
-            return String.format("%s/%s: %s %s/%s completed successfully. See details <%s>",
-                envBean.getEnv_name(),
-                envBean.getStage_name(),
-                action,
-                buildBean.getScm_branch(),
-                buildBean.getScm_commit_7(),
-                webLink);
-        } else {
-            // TODO this is Slack specific, screw hipchat for now
-            if (deployBean.getSuc_date() != null && deployBean.getSuc_date() != 0L) {
-                // This is failure after previous success
-                return String.format("%s/%s: can not deploy to all the newly provisioned hosts. See details <%s>",
-                    envBean.getEnv_name(),
-                    envBean.getStage_name(),
-                    webLink);
-            } else {
-                return String.format("%s/%s: %s %s/%s failed. See details <%s>",
+
+            String template =
+                    (tagBean != null && tagBean.getValue() == TagValue.BAD_BUILD)
+                            ? "WARNING: %s/%s: %s %s/%s completed successfully, but running on bad build. See details <%s>"
+                            : "%s/%s: %s %s/%s completed successfully. See details <%s>";
+
+            return String.format(
+                    template,
                     envBean.getEnv_name(),
                     envBean.getStage_name(),
                     action,
                     buildBean.getScm_branch(),
                     buildBean.getScm_commit_7(),
                     webLink);
+        } else {
+            // TODO this is Slack specific, screw hipchat for now
+            String tagMessage = (tagBean == null) ? "NOT SET" : tagBean.getValue().toString();
+            if (deployBean.getSuc_date() != null && deployBean.getSuc_date() != 0L) {
+                // This is failure after previous success
+                return String.format(
+                        "%s/%s: can not deploy to all the newly provisioned hosts. See details <%s>. This build is currently marked as %s.",
+                        envBean.getEnv_name(), envBean.getStage_name(), webLink, tagMessage);
+            } else {
+                return String.format(
+                        "%s/%s: %s %s/%s failed. See details <%s>. This build is currently marked as %s.",
+                        envBean.getEnv_name(),
+                        envBean.getStage_name(),
+                        action,
+                        buildBean.getScm_branch(),
+                        buildBean.getScm_commit_7(),
+                        webLink,
+                        tagMessage);
             }
         }
     }
 
-    public void sendChatMessage(String from, String rooms, String message, String color) {
+    public void sendChatMessage(
+            String from, String rooms, String message, String color, String recipients) {
         if (StringUtils.isEmpty(rooms)) {
             return;
         }
@@ -178,9 +232,18 @@ public class CommonHandler {
 
         for (String chatroom : chatrooms) {
             try {
+                if (!StringUtils.isEmpty(recipients)) {
+                    List<String> targets = Arrays.asList(recipients.split(","));
+                    for (String target : targets) {
+                        message = "<!subteam^" + target + "> " + message;
+                    }
+                }
                 chatManager.send(from, chatroom.trim(), message, color);
             } catch (Exception e) {
-                LOG.error(String.format("Failed to send message '%s' to chatroom %s", message, chatroom), e);
+                LOG.error(
+                        String.format(
+                                "Failed to send message '%s' to chatroom %s", message, chatroom),
+                        e);
             }
         }
     }
@@ -195,8 +258,10 @@ public class CommonHandler {
                 // TODO verify that send to peoper actually works
                 chatManager.sendToUser(operator, watcher.trim(), message, color);
             } catch (Exception e) {
-                LOG.error(String.format("Failed to send message '%s' to watcher %s",
-                    message, watcher), e);
+                LOG.error(
+                        String.format(
+                                "Failed to send message '%s' to watcher %s", message, watcher),
+                        e);
             }
         }
     }
@@ -225,37 +290,49 @@ public class CommonHandler {
         Integer totalSessions = schedule.getTotal_sessions();
         String[] hostNumbersList = hostNumbers.split(",");
         String[] cooldownTimesList = cooldownTimes.split(",");
-        int totalHosts = 0;
-        for (int i = 0; i < currentSession; i++) {
-            totalHosts+=Integer.parseInt(hostNumbersList[i]);
-        }
-        if (schedule.getState() == ScheduleState.COOLING_DOWN) { 
-            // check if cooldown period is over
-            if (System.currentTimeMillis() - schedule.getState_start_time() > Integer.parseInt(cooldownTimesList[currentSession-1]) * 60000) {
+        String envId = envBean.getEnv_id();
+        long totalHosts = getNumHostsInSession(currentSession, hostNumbersList, envId);
+        if (schedule.getState() == ScheduleState.COOLING_DOWN) {
+            // Check if cooldown period is over
+            // A negative cooldown period is considered as an infinite period
+            int cooldownPeriod = Integer.parseInt(cooldownTimesList[currentSession - 1]);
+            if (cooldownPeriod >= 0
+                    && System.currentTimeMillis() - schedule.getState_start_time()
+                            > cooldownPeriod * 60000) {
                 ScheduleBean updateScheduleBean = new ScheduleBean();
                 updateScheduleBean.setId(schedule.getId());
                 if (totalSessions == currentSession) {
-                    updateScheduleBean.setState(ScheduleState.FINAL); 
-                    LOG.debug("Env {} is now going into final deloy stage and will deploy on the rest of all of the hosts.", envBean.getEnv_id());
+                    updateScheduleBean.setState(ScheduleState.FINAL);
+                    LOG.debug(
+                            "Env {} is now going into final deloy stage and will deploy on the rest of all of the hosts.",
+                            envId);
                 } else {
-                    updateScheduleBean.setState(ScheduleState.RUNNING);  
-                    updateScheduleBean.setCurrent_session(currentSession+1);
-                    LOG.debug("Env {} has finished cooling down and will now start resume deploy by running session {}", envBean.getEnv_id(), currentSession+1);
+                    updateScheduleBean.setState(ScheduleState.RUNNING);
+                    updateScheduleBean.setCurrent_session(currentSession + 1);
+                    LOG.debug(
+                            "Env {} has finished cooling down and will now start resume deploy by running session {}",
+                            envId,
+                            currentSession + 1);
                 }
                 updateScheduleBean.setState_start_time(System.currentTimeMillis());
                 scheduleDAO.update(updateScheduleBean, schedule.getId());
             }
-        } else if (schedule.getState() == ScheduleState.RUNNING && agentDAO.countFinishedAgentsByDeploy(envBean.getDeploy_id()) >= totalHosts) {
+        } else if (schedule.getState() == ScheduleState.RUNNING
+                && agentDAO.countFinishedAgentsByDeploy(envBean.getDeploy_id()) >= totalHosts) {
             ScheduleBean updateScheduleBean = new ScheduleBean();
             updateScheduleBean.setId(schedule.getId());
             updateScheduleBean.setState(ScheduleState.COOLING_DOWN);
             updateScheduleBean.setState_start_time(System.currentTimeMillis());
             scheduleDAO.update(updateScheduleBean, schedule.getId());
-            LOG.debug("Env {} has finished running session {} and will now begin cooling down", envBean.getEnv_id(), currentSession); 
+            LOG.debug(
+                    "Env {} has finished running session {} and will now begin cooling down",
+                    envId,
+                    currentSession);
         }
     }
 
-    void transition(DeployBean deployBean, DeployBean newDeployBean, EnvironBean envBean) throws Exception {  
+    void transition(DeployBean deployBean, DeployBean newDeployBean, EnvironBean envBean)
+            throws Exception {
         transitionSchedule(envBean);
         String deployId = deployBean.getDeploy_id();
         String envId = envBean.getEnv_id();
@@ -277,16 +354,21 @@ public class CommonHandler {
         newDeployBean.setState(oldState);
         newDeployBean.setLast_update(System.currentTimeMillis());
 
-        //The maximum sucThreshold is 10000 to keep precision.
+        // The maximum sucThreshold is 10000 to keep precision.
         if (succeeded * 10000 >= sucThreshold * total) {
-            LOG.debug("Propose deploy {} as SUCCEEDING since {} agents are succeeded.", deployId, succeeded);
+            LOG.debug(
+                    "Propose deploy {} as SUCCEEDING since {} agents are succeeded.",
+                    deployId,
+                    succeeded);
             if (deployBean.getSuc_date() == null) {
                 newDeployBean.setSuc_date(System.currentTimeMillis());
 
                 // Submit post-webhooks, if exists
-                EnvWebHookBean webhooks = dataHandler.getDataById(envBean.getWebhooks_config_id(), WebhookDataFactory.class);
+                EnvWebHookBean webhooks =
+                        dataHandler.getDataById(
+                                envBean.getWebhooks_config_id(), WebhookDataFactory.class);
                 if (webhooks != null && !CollectionUtils.isEmpty(webhooks.getPostDeployHooks())) {
-                    jobPool.submit(new WebhookJob(webhooks.getPostDeployHooks(), deployBean, envBean));
+                    jobPool.submit(new WebhookJob(webhooks.getPostDeployHooks(), deployBean));
                     LOG.info("Submitted post deploy hook job for deploy {}.", deployId);
                 }
 
@@ -297,7 +379,12 @@ public class CommonHandler {
                 }
             }
             newDeployBean.setState(DeployState.SUCCEEDING);
-            LOG.info("Set deploy {} as SUCCEEDING since {} agents are succeeded.", deployId, succeeded);
+            if (!DeployState.SUCCEEDING.equals(oldState)) {
+                LOG.info(
+                        "Set deploy {} as SUCCEEDING since {} agents are succeeded.",
+                        deployId,
+                        succeeded);
+            }
             return;
         }
 
@@ -307,26 +394,33 @@ public class CommonHandler {
             return;
         }
 
-        String scheduleId = envBean.getSchedule_id(); 
-        long duration = TimeUnit.MILLISECONDS.toSeconds(System.currentTimeMillis() - deployBean.getLast_update());
+        String scheduleId = envBean.getSchedule_id();
+        long duration =
+                TimeUnit.MILLISECONDS.toSeconds(
+                        System.currentTimeMillis() - deployBean.getLast_update());
         long stuckTh = envBean.getStuck_th();
         if (succeeded <= deployBean.getSuc_total() && duration >= stuckTh) {
             if (oldState == DeployState.SUCCEEDING) {
                 // This is the case when deploy has been in SUCCEEDING for a while without updates
                 // And a new machine being provisioned, in this case, we set status back to RUNNING
-                LOG.info("Set deploy {} back to RUNNING most likely there are new hosts joining in.", deployId);
+                LOG.info(
+                        "Set deploy {} back to RUNNING most likely there are new hosts joining in.",
+                        deployId);
                 newDeployBean.setState(DeployState.RUNNING);
                 return;
             } else {
-                if (scheduleId != null) { // don't change state if it's cooling down 
-                    ScheduleBean schedule = scheduleDAO.getById(scheduleId);  
-                    if (schedule.getState() == ScheduleState.COOLING_DOWN) {  
+                if (scheduleId != null) { // don't change state if it's cooling down
+                    ScheduleBean schedule = scheduleDAO.getById(scheduleId);
+                    if (schedule.getState() == ScheduleState.COOLING_DOWN) {
                         return;
                     }
                 }
                 newDeployBean.setState(DeployState.FAILING);
-                LOG.info("Set deploy {} as FAILING since {} seconds past without complete the deploy.", deployId, duration);
-                
+                LOG.info(
+                        "Set deploy {} as FAILING since {} seconds past without complete the deploy.",
+                        deployId,
+                        duration);
+
                 // TODO, temp hack do NOT set lastUpdate for deploy stuck case, otherwise the
                 // next round transition will convert FAILING to RUNNING since new lastUpdate
                 // The better solution should be provide reason for previous transition
@@ -340,7 +434,7 @@ public class CommonHandler {
         if (oldState != DeployState.RUNNING) {
             LOG.info("Set deploy {} from {} to RUNNING.", deployId, oldState);
         } else {
-            LOG.debug("Deploy {} is still RUNNING...", deployId, oldState);
+            LOG.debug("Deploy {} is still RUNNING...", deployId);
         }
         newDeployBean.setState(DeployState.RUNNING);
     }
@@ -368,10 +462,10 @@ public class CommonHandler {
 
         // if newState is SUCCEEDING and suc_date is set, do not report ( because we already did )
         return !(newState == DeployState.SUCCEEDING && sucDate != null);
-
     }
 
-    void sendDeployEvents(DeployBean oldDeployBean, DeployBean newDeployBean, EnvironBean environBean) {
+    void sendDeployEvents(
+            DeployBean oldDeployBean, DeployBean newDeployBean, EnvironBean environBean) {
         DeployState newState = newDeployBean.getState();
         DeployState oldState = oldDeployBean.getState();
         if (newState == oldState) {
@@ -384,10 +478,11 @@ public class CommonHandler {
                 String commit = buildBean.getScm_commit_7();
                 String envName = environBean.getEnv_name();
                 String stageName = environBean.getStage_name();
-                String what = String.format("%s/%s deploy initiated.", envName, stageName);
-                String tags = String.format("%s/%s", envName, stageName);
-                sender.sendDeployEvent(what, tags, commit);
-                LOG.info("Successfully sent deploy events to graphite server. what: {}, commit: {}", what, commit);
+                DeployEvent event =
+                        new DeployEvent(
+                                this, envName, stageName, commit, newDeployBean.getOperator());
+                publisher.publishEvent(event);
+                LOG.info("Successfully sent deploy event: {}", event);
             } catch (Exception ex) {
                 LOG.error("Failed to send deploy events.", ex);
             }
@@ -398,12 +493,14 @@ public class CommonHandler {
         String lockName = String.format("STATE_TRANSITION-%s", deployId);
         Connection connection = utilDAO.getLock(lockName);
         if (connection != null) {
-            LOG.info(String.format("DB lock operation is successful: get lock %s", lockName));
+            LOG.trace(String.format("DB lock operation is successful: get lock %s", lockName));
             try {
                 internalTransition(deployId, envBean);
             } finally {
                 utilDAO.releaseLock(lockName, connection);
-                LOG.info(String.format("DB lock operation is successful: release lock %s", lockName));
+                LOG.trace(
+                        String.format(
+                                "DB lock operation is successful: release lock %s", lockName));
             }
         } else {
             LOG.warn(String.format("DB lock operation fails: failed to get lock %s", lockName));
@@ -424,18 +521,21 @@ public class CommonHandler {
         if (!StateMachines.DEPLOY_ACTIVE_STATES.contains(state)) {
             LOG.info("Deploy {} is currently in {} state, no need to transition.", deployId, state);
             return;
-        } 
+        }
 
         String envId = deployBean.getEnv_id();
-        if (envBean == null)
+        if (envBean == null) {
             envBean = environDAO.getById(envId);
-        
+        }
         /*
          * Make sure we do not have such a deploy which is not current but somehow not in the
          * final state. This should NOT happen, treat this as cleaning up for any potential wrong states
-        */
+         */
         if (!deployId.equals(envBean.getDeploy_id())) {
-            LOG.warn("Deploy {} has already been obsoleted but state {} is not final.", deployId, state);
+            LOG.warn(
+                    "Deploy {} has already been obsoleted but state {} is not final.",
+                    deployId,
+                    state);
             DeployState finalState = StateMachines.FINAL_STATE_TRANSITION_MAP.get(state);
             LOG.info("Transite deploy {} to {} state.", deployId, finalState);
             DeployBean updateBean = new DeployBean();
@@ -448,20 +548,48 @@ public class CommonHandler {
         DeployBean newPartialDeployBean = new DeployBean();
         transition(deployBean, newPartialDeployBean, envBean);
 
-        if (shouldSendFinishMessage(state, newPartialDeployBean.getState(), deployBean.getSuc_date())) {
-            jobPool.submit(new FinishNotifyJob(envBean, deployBean, newPartialDeployBean, deployBean.getBuild_id()));
+        if (shouldSendFinishMessage(
+                state, newPartialDeployBean.getState(), deployBean.getSuc_date())) {
+            jobPool.submit(
+                    new FinishNotifyJob(
+                            envBean, deployBean, newPartialDeployBean, deployBean.getBuild_id()));
         }
-
 
         // TODO This is not easy to maintain especially when there are new fields added,
         // it makes more sense it we implement this in DeployBean and have it examine all
         // the fields, just like equals
-        if (!state.equals(newPartialDeployBean.getState()) ||
-            !deployBean.getSuc_total().equals(newPartialDeployBean.getSuc_total()) ||
-            !deployBean.getFail_total().equals(newPartialDeployBean.getFail_total()) ||
-            !deployBean.getTotal().equals(newPartialDeployBean.getTotal())) {
+        if (!state.equals(newPartialDeployBean.getState())
+                || !deployBean.getSuc_total().equals(newPartialDeployBean.getSuc_total())
+                || !deployBean.getFail_total().equals(newPartialDeployBean.getFail_total())
+                || !deployBean.getTotal().equals(newPartialDeployBean.getTotal())) {
             deployDAO.updateStateSafely(deployId, state.toString(), newPartialDeployBean);
             LOG.info("Updated deploy {} with deploy bean = {}.", deployId, newPartialDeployBean);
         }
+    }
+
+    /**
+     * Get the number of hosts in the current session.
+     *
+     * <p>Supports both percentage based and fixed host numbers.
+     */
+    public long getNumHostsInSession(int currentSession, String[] hostNumbersList, String envId)
+            throws Exception {
+
+        String currentHostNumber = hostNumbersList[currentSession - 1];
+        if (currentHostNumber.endsWith("%")) {
+            // The deploy schedule is using host percentage numbers
+            int totalHostsPct =
+                    Integer.parseInt(
+                            currentHostNumber.substring(0, currentHostNumber.length() - 1));
+            // Ensure to round up by adding 99 before dividing by 100
+            return (totalHostsPct * agentDAO.countAgentByEnv(envId) + 99) / 100;
+        }
+
+        // The deploy schedule is using fixed host numbers
+        long totalHosts = 0;
+        for (int i = 0; i < currentSession; i++) {
+            totalHosts += Integer.parseInt(hostNumbersList[i]);
+        }
+        return totalHosts;
     }
 }

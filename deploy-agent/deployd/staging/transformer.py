@@ -3,9 +3,9 @@
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-#  
+#
 #     http://www.apache.org/licenses/LICENSE-2.0
-#    
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,40 +17,44 @@ import traceback
 from string import Template
 import re
 import logging
+from typing import List
 from deployd import IS_PINTEREST
 
 log = logging.getLogger(__name__)
 
 
 class TeletraanTemplate(Template):
-    delimiter = '$TELETRAAN_'
-    idpattern = r'[a-zA-Z][_a-z0-9A-Z\-]*'
+    delimiter = "$TELETRAAN_"
+    idpattern = r"[a-zA-Z][_a-z0-9A-Z\-]*"
 
 
 class Transformer(object):
-
-    def __init__(self, agent_dir, env_name, dict_fn=None):
+    def __init__(self, agent_dir, env_name, dict_fn=None) -> None:
         self._agent_dir = agent_dir
         self._env_name = env_name
         self._load_config(dict_fn)
 
-    def _load_config(self, fn):
+    def _load_config(self, fn) -> None:
         if not fn:
-            fn = os.path.join(self._agent_dir, "{}_SCRIPT_CONFIG".format(self._env_name))
+            fn = os.path.join(
+                self._agent_dir, "{}_SCRIPT_CONFIG".format(self._env_name)
+            )
 
         if not os.path.isfile(fn):
             self._dictionary = {}
             return
 
-        with open(fn, 'r') as f:
-            self._dictionary = dict((n.strip('\"\n\' ') for n in line.split("=", 1)) for line in f)
+        with open(fn, "r") as f:
+            self._dictionary = dict(
+                (n.strip("\"\n' ") for n in line.split("=", 1)) for line in f
+            )
 
-    def dict_size(self):
+    def dict_size(self) -> int:
         return len(self._dictionary)
 
-    def _translate(self, from_path, to_path):
+    def _translate(self, from_path, to_path) -> None:
         try:
-            with open(from_path, 'r') as f:
+            with open(from_path, "r") as f:
                 res = f.read()
 
             matcher = "(\{\$|\$\{)TELETRAAN_(?P<KEY>[a-zA-Z0-9\-_]+)(?P<COLON>:)?(?P<VALUE>.*?)\}"
@@ -67,13 +71,16 @@ class Transformer(object):
 
             s = TeletraanTemplate(res)
             res = s.safe_substitute(self._dictionary)
-            with open(to_path, 'w') as f:
+            with open(to_path, "w") as f:
                 f.write(res)
-        except:
-            log.error('Fail to translate script {}, stacktrace: {}'.format(from_path,
-                                                                           traceback.format_exc()))
+        except Exception:
+            log.error(
+                "Fail to translate script {}, stacktrace: {}".format(
+                    from_path, traceback.format_exc()
+                )
+            )
 
-    def transform_scripts(self, script_dir, template_dirname, script_dirname):
+    def transform_scripts(self, script_dir, template_dirname, script_dirname) -> List:
         scripts = []
         suffix = ".tmpl"
         try:
@@ -86,7 +93,11 @@ class Transformer(object):
 
                         if os.path.isfile(from_path):  # We only care about files
                             self._translate(from_path, to_path)
-                            log.info('finish translating: {} to {}'.format(from_path, to_path))
+                            log.info(
+                                "finish translating: {} to {}".format(
+                                    from_path, to_path
+                                )
+                            )
         except OSError:
             # if scripts_dir doesn't exist, there is no local build,
             # go on and return empty list.

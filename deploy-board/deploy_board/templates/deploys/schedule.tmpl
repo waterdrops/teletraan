@@ -9,15 +9,10 @@
                 <th class="col-md-2">State</th>
                 <th class="col-md-2"></th>
             </tr>
-                <td class="sessionNumber"><strong>FINAL</strong></td>
-                <td class="hostNumber">
-                    <div>N/A</div>
-                </td>
-                <td class="cooldownTime">
-                    <div>N/A</div>
-                </td>
-                <td class="state"></td>
-                <td class="text-right">
+            <tr id="sessionsComplete" class="info" style="display:none;border-radius:25px">
+                <td colspan="4" style="padding:14px 8px">
+                    <i class="fa fa-check-circle color-green" style="margin-right:5px"></i>
+                    Deploy schedule is complete. All hosts can proceed
                 </td>
             </tr>
             </table>
@@ -28,8 +23,7 @@
 </div>
 
 <script type="text/javascript">
-    var finalHostNumber = {{ agent_number }};
-     {% if schedule %} 
+     {% if schedule %}
         var cooldownTimes = "{{ schedule.cooldownTimes }}";
         var timesArray = cooldownTimes.split(",");
         var hostNumbers = "{{ schedule.hostNumbers }}";
@@ -50,19 +44,16 @@
             if (i == currentSession && scheduleState != "FINAL") {
                 button = '<td class="text-right"><button id="overrideBtn" type="button" class="btn btn-danger">Override</button></td>';
             }
-            $('#sessionTable tr:last').before('<tr id=session' + i +'><td class="sessionNumber" id=sessionNumber'+i+'><strong>'+i+'</strong></td><td class="hostNumber"><div>'+numbersArray[i-1]+' hosts</div></td><td class="cooldownTime"><div>'+timesArray[i-1]+' min</div></td><td class="state">'+state+'</td>'+button+'</tr>');
-            finalHostNumber = finalHostNumber - numbersArray[i-1];
+            $('#sessionTable tr:last').before('<tr id=session' + i +'><td class="sessionNumber" id=sessionNumber'+i+'><strong>'+i+'</strong></td><td class="hostNumber"><div>'+numbersArray[i-1]+' hosts</div></td><td class="cooldownTime"><div>'+getCooldownTimeDisplay(timesArray[i-1])+'</div></td><td class="state">'+state+'</td>'+button+'</tr>');
         }
 
         if (scheduleState == "FINAL") {
-            $('#sessionTable tr:last').addClass("info");
-            $('#sessionTable tr:last').css('borderRadius', '25px');
-            $('#sessionTable tr:last .state').text("RUNNING");
+            $("#sessionsComplete")[0].style.display = "table-row";
         } else {
-            if (scheduleState == "COOLING_DOWN") {
+            if (scheduleState == "COOLING_DOWN" && timesArray[currentSession - 1] !== "-1") {
                 // calculates time left until next session
                 var d = new Date();
-                var timeLeft = (timesArray[currentSession - 1]* 60000) - (d.getTime() - stateStartTime); 
+                var timeLeft = (timesArray[currentSession - 1]* 60000) - (d.getTime() - stateStartTime);
                 var min = Math.round((timeLeft/1000/60) << 0);
                 var sec = Math.round((timeLeft/1000) % 60);
                 sec = ("0" + sec).slice(-2); // make it always two integers for seconds
@@ -71,18 +62,15 @@
             }
             $("#session" + currentSession).addClass("info");
             $("#session" + currentSession).css('borderRadius', '3em');
-            $('#sessionTable tr:last .state').text("NOT STARTED");
         }
     {% endif %}
-
-    $('#sessionTable tr:last').find('.hostNumber div').html(finalHostNumber + " hosts");
 
     $(document).on('click', '#overrideBtn', function () {
       var sessionNum = parseInt($(this).closest('tr').find('.sessionNumber strong').text());
       $.ajax({
             type: 'POST',
             url: '/env/{{ env.envName }}/{{ env.stageName }}/override_session/?session_num='+sessionNum,
-            data: {'csrfmiddlewaretoken': '{{csrf_token}}'}, 
+            data: {'csrfmiddlewaretoken': '{{csrf_token}}'},
             dataType: "json",
             success: function (data) {
                 location.reload(true);
@@ -98,6 +86,13 @@
                 $('#errorBannerId').append(data.responseText);
                 $('#errorBannerId').show();
             }
-        });   
+        });
     })
+
+    function getCooldownTimeDisplay(cooldownTime) {
+      if (cooldownTime === "-1") {
+        return "Infinite";
+      }
+      return `${cooldownTime} min`;
+    }
 </script>

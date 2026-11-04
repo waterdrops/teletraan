@@ -15,20 +15,20 @@
                         <div class="input-group">
                             <span class="input-group-addon">
                                 <input type="radio" name="maxParallel" value="Number" id="maxParallelRadio"
-                                    {% ifequal env.showNumber True%}checked{% endifequal %} >
+                                    {% if env.showNumber == True%}checked{% endif %} >
                             </span>
-                                <input type="text" id="maxParallelValue" name="maxParallelValue" class="form-control"
-                                    value="{% ifequal env.showNumber True%}{{env.maxParallel}}{% endifequal %}">
+                                <input type="number" id="maxParallelValue" name="maxParallelValue" class="form-control"
+                                    value="{% if env.showNumber == True%}{{env.maxParallel}}{% endif %}">
                         </div>
                     </div>
                     <div class="col-xs-2">
                         <div class="input-group">
                             <span class="input-group-addon">
                                 <input type="radio" name="maxParallel" value="Percentage" id="maxParallelPctRadio"
-                                    {% ifequal env.showNumber False%}checked{% endifequal %}>
+                                    {% if env.showNumber == False%}checked{% endif %}>
                             </span>
                             <input type="text" id="maxParallelPctValue" name="maxParallelPctValue" class="form-control"
-                                    value="{% ifequal env.showNumber False %}{{ env.maxParallelPct }}{% endifequal %}">
+                                    value="{% if env.showNumber == False %}{{ env.maxParallelPct }}{% endif %}">
                             <span class="input-group-addon">%</span>
                         </div>
                     </div>
@@ -49,7 +49,7 @@
                 <div class="form-group">
                     <label for="stuckThreshold" class="deployToolTip control-label col-xs-2"
                         data-toggle="tooltip"
-                        title="Number of seconds should pass without making any progress before desclaring deploy failed">
+                        title="Number of seconds should pass without making any progress before declaring deploy failed">
                         Stuck Threshold
                     </label>
 
@@ -91,18 +91,16 @@
                                type="text" value="{{ env.chatroom |default_if_none:'' }}"
                                maxlength="128"/>
                     </div>
-                    <label for="notify" class="deployToolTip control-label col-xs-2"
+
+                    <label for="groupMentionRecipients" class="deployToolTip control-label col-xs-2"
                         data-toggle="tooltip"
-                        title="Whether or not to notify commiters when deploy">
-                        Notify Authors
+                        title="Ping slack user group in the chat rooms (slack channels), such as userGroupID1,userGroupID2.">
+                        Ping User Group
                     </label>
 
                     <div class="col-xs-4">
-                    {% if env.notifyAuthors %}
-                        <input class="" id="notify_author" name="notify_author" type="checkbox" value="" checked>
-                    {% else %}
-                        <input class="" id="notify_author" name="notify_author" type="checkbox" value="">
-                    {% endif %}
+                        <input class="form-control" name="group_mention_recipients" required="false"
+                               type="text" value="{{ env.groupMentionRecipients |default_if_none:'' }}"/>
                     </div>
                 </div>
                 <div class="form-group">
@@ -115,6 +113,22 @@
                     <div class="col-xs-4">
                         <input class="form-control" name="watch_recipients" required="false"
                                type="text" value="{{ env.watchRecipients |default_if_none:'' }}"/>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="notify" class="deployToolTip control-label col-xs-2"
+                        data-toggle="tooltip"
+                        title="Whether or not to notify commiters when deploy">
+                        Notify Authors
+                    </label>
+
+                    <div class="col-xs-4">
+                    {% if env.notifyAuthors %}
+                        <input class="" id="notify_author" name="notify_author" type="checkbox" value="" checked>
+                    {% else %}
+                        <input class="" id="notify_author" name="notify_author" type="checkbox" value="">
+                    {% endif %}
                     </div>
 
                     <label for="emailRecipients" class="deployToolTip control-label col-xs-2"
@@ -175,7 +189,7 @@
 
                     <div class="col-xs-4">
                         <input class="form-control" name="maxDeployDay" required="true"
-                               type="text" value="{{ env.maxDeployDay }}"/>
+                               type="number" min="1" value="{{ env.maxDeployDay }}"/>
                     </div>
                 </div>
                 <div class="form-group">
@@ -196,18 +210,6 @@
                             {% endif %}>
                             {% endfor %}
                         </select>
-                    </div>
-
-                    <label for="maxParallelRp" class="deployToolTip control-label col-xs-2"
-                        data-toggle="tooltip"
-                        title="Maximum number of hosts are allowed to be replaced at the same time
-                        when doing cluster upgrading">
-                        Maximum Replaceable Host
-                    </label>
-
-                    <div class="col-xs-4">
-                        <input class="form-control" name="maxParallelRp" required="true"
-                               type="text" value="{{ env.maxParallelRp }}"/>
                     </div>
                 </div>
                 <div class="form-group">
@@ -235,16 +237,31 @@
                         Stage Type (Immutable once set off the DEFAULT type)
                     </label>
                     <div class ="col-xs-4">
-                        <select class="form-control" name="stageType">
-                            {% get_stage_types as stageTypes %}
-                            {% for stageType in stageTypes %}
-                            {% if env.stageType == stageType %}
-                            <option value="{{ stageType }}" selected="selected">{{ stageType }}</option>
-                            {% else %}
-                            <option value="{{ stageType }}">{{ stageType }}</option>
-                            {% endif %}>
-                            {% endfor %}
-                        </select>
+                        <div class="input-group">
+                            <select class="form-control" name="stageType" id="stageTypeValueId">
+                                {% get_stage_types as stageTypes %}
+                                {% for stageType in stageTypes %}
+                                {% if env.stageType == stageType %}
+                                <option value="{{ stageType }}" selected="selected">{{ stageType }}</option>
+                                {% else %}
+                                <option value="{{ stageType }}">{{ stageType }}</option>
+                                {% endif %}>
+                                {% endfor %}
+                            </select>
+                            <span class="input-group-btn">
+                                <button class="deployToolTip btn stage-type-btn-default" id="stageTypeBtnId" type="button" data-toggle="tooltip" title="click to see more information">
+                                    <span class="glyphicon glyphicon-question-sign"></span>
+                                </button>
+                            </span>
+                        </div>
+                        <div class="col-xs-12" id="stageTypeHelpInfo" hidden="true">
+                            DEV - Used for manual testing</br>
+                            LATEST - Deploy the latest available build</br>
+                            STAGING - Deploy the latest available artifacts from master, then verify with testing (integration, stress, smoke etc)</br>
+                            CANARY - Deploy the build after tests, then verify the ACA together with the CONTROL</br>
+                            CONTROL - Deploy the build as the production, used with CANARY</br>
+                            PRODUCTION - Deploy the build to production
+                        </div>
                     </div>
                 </div>
                 {% if env.systemPriority != None %}
@@ -262,6 +279,18 @@
                     </div>
                 </div>
                 {% endif %}
+                <div class="form-group">
+                    <label for="terminationLimit" class="deployToolTip control-label col-xs-2"
+                        data-toggle="tooltip"
+                        title="Max number user can manually scale down in one time">
+                        Termination Limit
+                    </label>
+
+                    <div class="col-xs-4">
+                        <input class="form-control" name="terminationLimit" required="false"
+                               type="number" min="1" value="{{ env.terminationLimit }}"/>
+                    </div>
+                </div>
                 <div class="form-group">
                     <label for="description" class="deployToolTip control-label col-xs-2"
                         data-toggle="tooltip"
@@ -317,6 +346,14 @@
             $('#resetEnvConfigBtnId').removeAttr('disabled');
         });
 
+        $('#stageTypeBtnId').click(function () {
+            if ($('#stageTypeHelpInfo').is(':visible')){
+                $('#stageTypeHelpInfo').attr('hidden', 'true');
+            } else {
+                $('#stageTypeHelpInfo').removeAttr('hidden');
+            }
+        });
+
         $('#saveEnvConfigBtnId').click(function () {
             var btn = $(this);
             $.ajax({
@@ -328,17 +365,15 @@
                     btn.button('loading');
                 },
                 success: function (data) {
-                    if(data != null && data.success == false) {
-                        $('#errorBannerId').append(data.error);
-                        $('#errorBannerId').show();
-                    } else {
-                        $("#envConfigId").parent().html(data.html);
-                        $('#errorBannerId').empty().hide();
-                    }
+                    $("#envConfigId").parent().html(data.html);
+                    $('#errorBannerId').empty().hide();
                     btn.button('reset');
                 },
                 error: function (data) {
-                    $('#errorBannerId').append(data.responseText);
+                    $('#errorBannerId').append(data.responseJSON.error);
+                    if ($('#stageTypeValueId').val() == 'DEFAULT') {
+                        $('#errorBannerId').append("<a href='{{stage_type_info_link}}'>pinch/teletraan-stagetypes</a>");
+                    }
                     $('#errorBannerId').show();
                 }
             });

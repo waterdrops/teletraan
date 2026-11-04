@@ -1,0 +1,4 @@
+#!/bin/bash
+set -exv
+
+install -m 755 deploy-agent /usr/local/bin/

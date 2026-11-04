@@ -1,33 +1,153 @@
-
 <div id="clusterPanelId" v-if="hasCluster" class="panel panel-default">
-<panel-heading title="Cluster Capacity" target="#clusterConfigId" initcollapse="false">
-</panel-heading>
-<div id="clusterConfigId" class="collapse in panel-body">
-    <div class="container-fluid">
-        <form id="clusterConfigFormId" class="form-horizontal" role="form">
-            <fieldset id="clusterConfigFieldSetId">
-                <label-info title="Cluster State" name="Cluster State" v-bind:text="clusterstate" v-bind:styleclass="clusterStateStyle"></label-info>
-                <label-info title="Cell" name="Cell" v-bind:text="cell"></label-info>
-                <static-capacity-config v-if="!autoscalingEnabled" v-bind:capacity="desiredCapacity" v-on:change="updateStatic">
-                </static-capacity-config>
-                <asg-capacity-config v-if="autoscalingEnabled" v-bind:minsize="minsize" v-bind:maxsize="maxsize" v-on:minchange="updateMin" v-on:maxchange="updateMax">
-                </asg-capacity-config>
-            </fieldset>
-        </form>
+    {% if useEntitlements %}
+    <div class="panel-heading clearfix">
+        <h4 class="panel-title pull-left pointer-cursor">
+            <a data-toggle="collapse" data-target="#clusterConfigId">
+                <span id="clusterConfigIdToggler" class="glyphicon glyphicon-chevron-down"></span>
+                Cluster Capacity
+            </a>
+            <span class="label label-default" style="margin-left: 8px; vertical-align: middle;">READ-ONLY</span>
+        </h4>
+        <div class="pull-right text-muted" style="padding-top: 3px;">
+            <span class="glyphicon glyphicon-lock"></span>
+            Managed by Entitlements
+        </div>
     </div>
+    {% else %}
+    <panel-heading title="Cluster Capacity" target="#clusterConfigId" initcollapse="false"></panel-heading>
+    {% endif %}
+    <div id="clusterConfigId" class="collapse in panel-body">
+        <div class="container-fluid">
+            <form id="clusterConfigFormId" class="form-horizontal" role="form">
+                <fieldset id="clusterConfigFieldSetId" {% if is_managed_resource or useEntitlements %}disabled{% endif %}
+                        {% if useEntitlements %}title="Click View Entitlement to make capacity updates"{% endif %}>
+                    <label-info title="Cluster State" name="Cluster State" v-bind:text="clusterstate" v-bind:styleclass="clusterStateStyle"></label-info>
+                    <label-info title="Cell" name="Cell" v-bind:text="cell"></label-info>
+                    <static-capacity-config v-if="!autoscalingEnabled"
+                        :original-capacity="originalCapacity" @change="desiredCapacity = $event"
+                        :remaining-capacity="remainingCapacity" :placements="placements"
+                        :termination-limit="terminationLimit" :groupName="groupName">
+                    </static-capacity-config>
+                    <asg-capacity-config v-if="autoscalingEnabled" :current-size="originalCapacity"
+                        :original-min-size="asg_launch_info.minSize" @min-change="minsize = $event"
+                        :original-max-size="asg_launch_info.maxSize" @max-change="maxsize = $event"
+                        :remaining-capacity="remainingCapacity" :placements="placements">
+                    </asg-capacity-config>
+                </fieldset>
+                {% if useEntitlements %}
+                <div class="form-group" style="margin-bottom: 0;">
+                    <div class="col-xs-8 col-xs-offset-4">
+                        <div class="alert alert-info" style="margin-bottom: 0;">
+                            <p style="margin-bottom: 8px;">
+                                <strong>Capacity is read-only here — managed by Entitlements.</strong>
+                            </p>
+                            <ul style="margin-bottom: 0; padding-left: 18px;">
+                                <li>
+                                    <strong>Mid-incident?</strong>
+                                    Click <strong>View Entitlement</strong> below
+                                    <span class="glyphicon glyphicon-arrow-down"></span>
+                                    and turn on <strong>Emergency Request</strong> — it bypasses the
+                                    budget and approval gates. Emergency requests are for incidents only.
+                                </li>
+                                <li>
+                                    <strong>Guide:</strong>
+                                    <a href="{{ entitlement_support.guide_url }}" target="_blank" rel="noopener">
+                                        Teletraan Entitlements Guide
+                                        <span class="glyphicon glyphicon-new-window"></span>
+                                    </a>
+                                </li>
+                                <li>
+                                    <strong>Questions:</strong>
+                                    <strong>{{ entitlement_support.slack_channel }}</strong>
+                                    — tag <strong>{{ entitlement_support.slack_user_group }}</strong> (routes to the oncall)
+                                </li>
+                                <li>
+                                    <strong>Platform help (Teletraan):</strong>
+                                    <strong>{{ entitlement_support.platform_channel }}</strong>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+                {% if is_managed_resource %}
+                <div class="form-group">
+                    <label class="control-label col-xs-4" for="isManagedResourceCheckboxId" style="padding-top: 0px">Resource is managed</label>
+                    <div class="col-xs-2">
+                        <input type="checkbox" id="isManagedResourceCheckboxId" checked>
+                    </div>
+                </div>
+                <div class="form-group" id="resourceManagedBanner" style="display: none;">
+                    <div class="col-xs-offset-4">
+                        <div class="alert alert-info">
+                            <strong>Note:</strong> This box cannot be manually re-checked once unchecked. Unchecking this box will disable resource management. The cluster must be re-onboarded to re-enable resource management.
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+    <div class="panel-footer clearfix">
+        {% if useEntitlements %}
+        <div class="pull-left text-muted" style="padding-top: 7px;">
+            <span class="glyphicon glyphicon-refresh"></span>
+            All capacity updates go through Entitlements, which auto-syncs to Teletraan.
+        </div>
+        {% endif %}
+        <div class="pull-right">
+            {% if useEntitlements %}
+            <a href="{{ entitlements_ui_link }}?openForm=request&platform=teletraan&service={{envName}}-{{stageName}}&budgetingEntity=all" target="_blank" type="button" id="saveClusterConfigBtnId" class="btn btn-primary"
+                    title="Update capacity in the Entitlements UI">
+                <span class="glyphicon glyphicon-new-window"></span>
+                View Entitlement
+            </a>
+            {% else %}
+            <button type="button" class="btn btn-primary" v-bind:disabled="!canSaveCapacity"
+                    data-toggle="modal"
+                    :data-target="`#${confirmDialogId}`"
+                    title="Save cluster capacity configuration"
+                    {% if is_managed_resource %}disabled{% endif %}>
+                <span class="glyphicon glyphicon-floppy-save"></span>
+                Save
+            </button>
+            {% endif %}
+        </div>
+    </div>
+    <modal v-bind:title="confirmDialogTitle" v-bind:id="confirmDialogId" v-on:input="clickDialog">
+        <div slot="body"> Are you sure you want to <strong>change capacity</strong> for this cluster?</div>
+    </modal>
 </div>
 
-<div class="panel-footer clearfix">
-    <div class="pull-right">
-        <button type="button" id="saveClusterConfigBtnId" class="btn btn-primary" v-bind:disabled="!canSaveCapacity"
-                data-loading-text="Saving..." v-on:click="save">
-            <span class="glyphicon glyphicon-floppy-save"></span> Save
-        </button>
-    </div>
-</div>
-</div>
+{% if useEntitlements %}
+<script>
+    $(function () {
+        $('#clusterConfigId').on('hide.bs.collapse show.bs.collapse', function () {
+            $('#clusterConfigIdToggler').toggleClass('glyphicon-chevron-down glyphicon-chevron-right', 100);
+        });
+    });
+</script>
+{% endif %}
+{% if is_managed_resource %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const checkbox = document.getElementById('isManagedResourceCheckboxId');
+        const fieldset = document.getElementById('clusterConfigFieldSetId');
+        const submitBtn = document.getElementById('saveClusterConfigBtnId');
+        const banner = document.getElementById('resourceManagedBanner');
+
+        checkbox.addEventListener('change', function() {
+            fieldset.disabled = !!checkbox.checked;
+            submitBtn.disabled = !!checkbox.checked;
+            banner.style.display = checkbox.checked ? 'none' : 'block';
+        });
+    });
+</script>
+{% endif %}
 <script>
     var cluster = info.basic_cluster_info;
+    const terminationLimit = info.termination_limit;
+    const groupName = info.cluster_name;
     if (cluster!=null){
         var asg_launch_info = cluster.asg_info.launchInfo;
         //Decide if we show one capacity box or min/max size
@@ -46,43 +166,31 @@
                 cell: cluster.cellName,
                 clusterstate: cluster.state,
                 clusterStateStyle: cluster.state === "NORMAL" ? "text-success" : "text-danger",
+                confirmDialogTitle:"Change Cluster Capacity Confirmation",
+                confirmDialogId:"confirmClusterCapacityDialog",
                 desiredCapacity: cluster.capacity,
                 instancetype: cluster.hostType,
                 minsize: asg_launch_info.minSize,
                 maxsize: asg_launch_info.maxSize,
                 autoscalingEnabled:autoscalingEnabled,
-                canSaveCapacity: cluster.state === "NORMAL"
+                canSaveCapacity: cluster.state === "NORMAL",
+                remainingCapacity: info.placements != null ?  info.placements.reduce((s, e) => s + e.capacity, 0) : Infinity,
+                placements: info.placements,
+                originalCapacity: cluster.capacity,
+                terminationLimit: terminationLimit,
+                groupName: groupName,
             },
             methods:{
-                updateStatic: function(value){
-                   this.desiredCapacity = Number(value)
-                },
-                updateMin:function(value){
-                    this.minsize = Number(value)
-                    if (this.maxsize<this.minsize){
-                        this.maxsize = this.minsize
-                    }
-                },
-                updateMax: function(value){
-                    this.maxsize = Number(value)
-                    if (this.maxsize<this.minsize){
-                        this.minsize = this.maxsize
+                clickDialog: function(value){
+                    if (value){
+                        this.save();
                     }
                 },
                 save:function(){
                     if (!this.autoscalingEnabled){
-                        if (this.desiredCapacity<0){
-                            globalNotificationBanner.error = "Capacity cannot be less than 0"
-                            return
-                        }
                         //Set min and max size directly to group. Right now, cluster itself has no autoscaling info
                         this.minsize = this.desiredCapacity
                         this.maxsize = this.desiredCapacity
-                    }
-
-                    if (this.minsize<0 || this.maxsize<0 || this.minsize > this.maxsize){
-                            globalNotificationBanner.error = "Min and Max size cannot be less than 0 and Max size cannot be less than Min size"
-                            return
                     }
 
                     $.ajax({
@@ -96,11 +204,16 @@
 
                         },
                         success: function (data) {
-                            globalNotificationBanner.info = "Capacity updated successfully"
-                            window.location.href='/env/{{ env.envName }}/{{ env.stageName }}/config/capacity/'
+                            globalNotificationBanner.info = "Capacity updated successfully";
+                            //Reload page
+                            window.location.href=window.location.href
                         },
                         error: function (data) {
-                            globalNotificationBanner.error = ["Request Error: ", data.status, data.statusText, data.responseText].join(' ');
+                            var optionalInstruction = '';
+                            if (window.info.is_pinterest && data.responseText.includes('capacity')) {
+                                optionalInstruction = 'If you encounter a capacity issue, please follow this guide: http://pinch/teletraan_subnets';
+                            }
+                            globalNotificationBanner.error = ["Request Error: ", data.status, data.statusText, data.responseText, optionalInstruction].join(' ');
                         }
                     });
                 }

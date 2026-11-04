@@ -17,10 +17,10 @@
         <h4 class="panel-title pull-left">Actions</h4>
     </div>
     <div class="row">
-        <a class="deployToolTip btn btn-default btn-block"
+        <a type="button" class="deployToolTip btn btn-default btn-block"
            href="/env/{{ env.envName }}/{{ env.stageName }}/deploy"
-           data-toggle="tooltip" title="Go back to the current deploy">
-            <span class="glyphicon glyphicon-flash"></span> Current Deploy
+           data-toggle="tooltip" title="Return to the current deployment page">
+           <i class="fa fa-flash"></i> Back to Current Deploy
         </a>
     </div>
     <div class="row">
@@ -88,13 +88,13 @@
       </table>
         <ul class="pager">
             <li>
-                <a href='/envs/{{ env.envName }}/{{ env.stageName }}/hotfixes/?page_index={{ pageIndex|add:"-1" }}&page_size={{ pageSize }}'
+                <a href='/env/{{ env.envName }}/{{ env.stageName }}/hotfixes/?page_index={{ pageIndex|add:"-1" }}&page_size={{ pageSize }}'
                    class="btn btn-default {% if disablePrevious %}disabled{% endif %}">
                     <span class="glyphicon glyphicon-chevron-left"></span> Previous
                 </a>
             </li>
             <li>
-                <a href='/envs/{{ env.envName }}/{{ env.stageName }}/hotfixes/?page_index={{ pageIndex|add:"1" }}&page_size={{ pageSize }}'
+                <a href='/env/{{ env.envName }}/{{ env.stageName }}/hotfixes/?page_index={{ pageIndex|add:"1" }}&page_size={{ pageSize }}'
                    class="btn btn-default {% if disableNext %}disabled{% endif %}">
                     Next <span class="glyphicon glyphicon-chevron-right"></span>
                 </a>

@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS environs (
     external_id          CHAR(36),
     allow_private_build TINYINT(1)    NOT NULL DEFAULT 0,
     ensure_trusted_build TINYINT(1)    NOT NULL DEFAULT 0,
+    external_project_name VARCHAR(255) DEFAULT NULL,
     PRIMARY KEY   (env_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 CREATE UNIQUE INDEX env_name_stage_idx ON environs (env_name, stage_name);
@@ -102,6 +103,7 @@ CREATE TABLE IF NOT EXISTS hotfixes (
     operator        VARCHAR(32)     NOT NULL,
     job_num         VARCHAR(32),
     job_name        VARCHAR(64)     NOT NULL,
+    ci_platform     VARCHAR(64),
     base_deploy     VARCHAR(22)     NOT NULL,
     base_commit     VARCHAR(64),
     repo            VARCHAR(64)     NOT NULL,
@@ -123,6 +125,7 @@ CREATE TABLE IF NOT EXISTS hosts (
     last_update     BIGINT              NOT NULL,
     state           VARCHAR(32)         NOT NULL,
     can_retire      TINYINT(1)          NOT NULL DEFAULT 0,
+    account_id      VARCHAR(64),
     PRIMARY KEY    (host_id, group_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 CREATE UNIQUE INDEX rev_group_host_idx ON hosts (group_name, host_name);
@@ -170,6 +173,7 @@ CREATE TABLE IF NOT EXISTS agents (
     first_deploy   TINYINT(1)          NOT NULL DEFAULT 0,
     first_deploy_time     BIGINT,
     stage_start_date     BIGINT,
+    container_health_status VARCHAR(32) NOT NULL DEFAULT "",
     PRIMARY KEY    (host_id, env_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 CREATE INDEX agent_env_idx ON agents (env_id, host_name);
@@ -304,10 +308,21 @@ CREATE TABLE IF NOT EXISTS schedules (
     PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
+CREATE TABLE IF NOT EXISTS worker_jobs (
+    id                CHAR(36)                                                 NOT NULL,
+    job_type          ENUM('INFRA_APPLY')                                      NOT NULL DEFAULT 'INFRA_APPLY',
+    config            JSON                                                     NOT NULL,
+    status            ENUM('INITIALIZED', 'RUNNING', 'COMPLETED', 'FAILED')    NOT NULL DEFAULT 'INITIALIZED',
+    create_at         BIGINT                                                   NOT NULL,
+    last_update_at    BIGINT,
+    PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+CREATE INDEX worker_jobs_priority_idx ON worker_jobs(job_type, status, create_at);
+
 CREATE TABLE IF NOT EXISTS schema_versions (
     version INT NOT NULL DEFAULT 0,
     PRIMARY KEY (version)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
 -- Make sure to update the version everytime we change the schema
-INSERT INTO schema_versions (version) VALUES (4);
+INSERT INTO schema_versions (version) VALUES (7);

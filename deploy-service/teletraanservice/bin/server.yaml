@@ -13,11 +13,19 @@ server:
   requestLog:
     appenders:
       - type: file
-        threshold: ALL
-        archive: false
+        archive: true
+        archivedLogFilenamePattern: /tmp/teletraan/access-%d.log
+        archivedFileCount: 5
         currentLogFilename: /tmp/teletraan/access.log
-        timeZone: UTC
-  registerDefaultExceptionMappers: false
+        layout:
+          type: access-json
+          timestampFormat: "yyyy-MM-dd'T'HH:mm:ss.SSSZ"
+          requestAttributes: [name]
+          customFieldNames:
+            requestAttributes: principal
+          includes: [timestamp, remoteAddress, protocol, method, requestUri, statusCode]
+  detailedJsonProcessingExceptionMapper: true
+  registerDefaultExceptionMappers: true
 
 #
 # Logging settings. refer
@@ -39,7 +47,6 @@ logging:
       threshold: ALL
       timeZone: UTC
       target: stdout
-
 
 #
 # Mysql connection config. By default, we use the real mysql as the backend.
@@ -91,6 +98,14 @@ db:
   # (Optional)OAuth token cache
   #tokenCacheSpec: maximumSize=1000,expireAfterWrite=10m
 
+  # pinDeploySpiffeIds:
+  #   - spiffe://pin220.com/teletraan/spin-orca/dev
+  #   - spiffe://pin220.com/teletraan/spin-orca/staging
+  #   - spiffe://pin220.com/teletraan/spin-orca/prod
+  #   - spiffe://pin220.com/teletraan/spin-keel/dev
+  #   - spiffe://pin220.com/teletraan/spin-keel/staging
+  #   - spiffe://pin220.com/teletraan/spin-keel/prod
+
 #
 # Token based Authorization: by default is disabled.
 #
@@ -109,13 +124,17 @@ db:
 # Currently Teletraan supports Github and Phabricator. Uncommment one of the
 # following sections to enable the SCM support.
 #
+#defaultScmTypeName: Phabricator
+
 #scm:
   #type: github
+  #typeName: Github
   #token:
   #apiPrefix: https://api.github.com
   #urlPrefix: https://github.com
 
   #type: phabricator
+  #typeName: Phabricator
   #urlPrefix: https://phabricator.sample.com
   #arc: /usr/local/bin/arc
   #arcrc: /root/.arcrc
@@ -149,7 +168,6 @@ system:
   # Teletraan needs to refer Deploy Dashboard url in its notify etc.
   dashboardUrl: ${TELETRAAN_DASHBOARD_URL:-http://localhost:8888}
   # Display full stack trace or just the error to user.
-  #clientError: long|short
 
 #External Alerts
 externalAlerts:
@@ -167,20 +185,45 @@ workers:
       period: 30
 
   # AutoPromoter provides the Auto Deploy support. It finds the deploy
-  # cadidates from preceeding stage and promote them to next stages.
+  # candidates from preceding stage and promote them to next stages.
   - name: AutoPromoter
     properties:
       initialDelay: 20
       period: 30
+      bufferTimeMinutes: 2
 
   # AgentJanitor cleans up any obsoleted hosts or agents records
-  - name: SimpleAgentJanitor
+  - name: AgentJanitor
     properties:
       initialDelay: 30
       period: 300
       minStaleHostThreshold: 150
       maxStaleHostThreshold: 600
 
+  - name: MetricsEmitter
+    properties:
+      initialDelay: 2
+      period: 5
+
 # Ping Requst validators:
 # pingrequestvalidators:
 #  -  com.pinterest.deployservice.pingrequests.Ec2InstanceValidator
+
+
+#
+# Health settings
+#
+health:
+  delayedShutdownHandlerEnabled: true
+  shutdownWaitPeriod: 30s
+  healthCheckUrlPaths:
+    - /healthcheck
+    - /health-check
+  healthChecks:
+    - name: generic
+      critical: true
+      schedule:
+        checkInterval: 5s
+        downtimeInterval: 10s
+        failureAttempts: 2
+        successAttempts: 1

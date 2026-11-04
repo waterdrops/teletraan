@@ -1,5 +1,5 @@
-/*
- * Copyright 2016 Pinterest, Inc.
+/**
+ * Copyright (c) 2016-2022 Pinterest, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,17 +15,64 @@
  */
 package com.pinterest.deployservice.rodimus;
 
-
+import com.pinterest.deployservice.bean.ClusterInfoPublicIdsBean;
+import com.pinterest.deployservice.bean.rodimus.AsgSummaryBean;
+import com.pinterest.deployservice.bean.rodimus.RodimusAutoScalingAlarm;
+import com.pinterest.deployservice.bean.rodimus.RodimusAutoScalingPolicies;
+import com.pinterest.deployservice.bean.rodimus.RodimusScheduledAction;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
 public interface RodimusManager {
-    void terminateHostsByClusterName(String clusterName, Collection<String> hostIds) throws Exception;
+    void terminateHostsByClusterName(String clusterName, Collection<String> hostIds)
+            throws Exception;
+
+    void terminateHostsByClusterName(
+            String clusterName, Collection<String> hostIds, Boolean replaceHost) throws Exception;
 
     Collection<String> getTerminatedHosts(Collection<String> hostIds) throws Exception;
 
     Long getClusterInstanceLaunchGracePeriod(String clusterName) throws Exception;
 
     Map<String, Map<String, String>> getEc2Tags(Collection<String> hostIds) throws Exception;
+
+    ClusterInfoPublicIdsBean getClusterInfoPublicIdsBean(String clusterName) throws Exception;
+
+    void createClusterWithEnvPublicIds(
+            String clusterName,
+            String envName,
+            String stageName,
+            ClusterInfoPublicIdsBean clusterInfoPublicIdsBean)
+            throws Exception;
+
+    void updateClusterWithPublicIds(
+            String clusterName, ClusterInfoPublicIdsBean clusterInfoPublicIdsBean) throws Exception;
+
+    void updateClusterCapacity(String clusterName, Integer minSize, Integer maxSize)
+            throws Exception;
+
+    RodimusAutoScalingPolicies getClusterScalingPolicies(String clusterName) throws Exception;
+
+    List<RodimusAutoScalingAlarm> getClusterAlarms(String clusterName) throws Exception;
+
+    List<RodimusScheduledAction> getClusterScheduledActions(String clusterName) throws Exception;
+
+    void deleteClusterScalingPolicy(String clusterName, String policyName) throws Exception;
+
+    void postClusterScalingPolicies(String clusterName, RodimusAutoScalingPolicies policies)
+            throws Exception;
+
+    void deleteClusterAlarm(String clusterName, String alarmId) throws Exception;
+
+    void createClusterAlarms(String clusterName, List<RodimusAutoScalingAlarm> clusterAlarms)
+            throws Exception;
+
+    void deleteClusterScheduledAction(String clusterName, String actionId) throws Exception;
+
+    void postClusterScheduledActions(
+            String clusterName, List<RodimusScheduledAction> clusterScheduledActionsList)
+            throws Exception;
+
+    AsgSummaryBean getAutoScalingGroupSummary(String clusterName) throws Exception;
 }

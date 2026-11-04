@@ -3,34 +3,47 @@
 {% load static %}
 
 {% block navbar-items %}
+<li><a href="/clouds/accounts">Accounts</a></li>
 <li><a href="/envs">Environments</a></li>
 <li><a href="/builds">Builds</a></li>
 {% endblock %}
 
-
+{% block breadcrumb-items %}
+{% if pinterest %}
+    {% include "deploys/warning_no_tier3.tmpl" %}
+{% endif %}
+{% endblock breadcrumb-items %}
 
 {% block main %}
-{% include "environs/site_health.tmpl" with metricsKind="site" %}
-
 <div class="panel panel-default">
     {% include "panel_heading.tmpl" with panel_title="Ongoing Deployments" panel_body_id="onGoingDeployId" direction="down" %}
     <div id="onGoingDeployId" class="collapse in panel-body table-responsive">
     </div>
 </div>
 
-    <div class="panel panel-default">
-    {% include "panel_heading.tmpl" with panel_title="Deployment Statistics" panel_body_id="deployStatsId" direction="down" %}
-        <div id="deployStatsId" class="collapse in panel-body">
-            <div id="dailyDeployCountId"></div>
-        </div>
+<div class="panel panel-default">
+    {% include "panel_heading.tmpl" with panel_title="Ongoing Sidecar Deployments" panel_body_id="onGoingSidecarDeployId" direction="down" %}
+    <div id="onGoingSidecarDeployId" class="collapse in panel-body table-responsive">
     </div>
+</div>
+
+<div class="panel panel-default">
+{% include "panel_heading.tmpl" with panel_title="Deployment Statistics" panel_body_id="deployStatsId" direction="down" %}
+    <div id="deployStatsId" class="collapse in panel-body">
+        <div id="dailyDeployCountId"></div>
+    </div>
+</div>
 <script>
     $(function () {
         $('#onGoingDeployId').load('/deploys/ongoing/');
-
         setInterval(function() {
             $('#onGoingDeployId').load('/deploys/ongoing/');
-        }, 30000);
+        }, 60000);
+
+        $('#onGoingSidecarDeployId').load('/deploys/ongoing_sidecar/');
+        setInterval(function() {
+            $('#onGoingSidecarDeployId').load('/deploys/ongoing_sidecar/');
+        }, 60000);
 
         $('#dailyDeployCountId').load('/deploys/dailycount');
     });

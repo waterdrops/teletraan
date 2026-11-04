@@ -1,12 +1,12 @@
 /**
- * Copyright 2016 Pinterest, Inc.
+ * Copyright (c) 2016-2024 Pinterest, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *  
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *    
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,29 +15,19 @@
  */
 package com.pinterest.deployservice.bean;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import org.apache.commons.lang.builder.ReflectionToStringBuilder;
-
+import com.pinterest.deployservice.common.Constants;
+import io.dropwizard.validation.ValidationMethod;
 import java.io.Serializable;
+import javax.validation.constraints.Max;
+import javax.validation.constraints.Min;
+import javax.validation.constraints.NotNull;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.builder.ReflectionToStringBuilder;
+import org.quartz.CronExpression;
 
-/**
- * Keep the bean and table in sync
- * <p>
- * CREATE TABLE promotes (
- * env_id          VARCHAR(22)         NOT NULL,
- * type            VARCHAR(32)         NOT NULL,
- * pred_stage      VARCHAR(64),
- * queue_size      INT                 NOT NULL,
- * schedule        VARCHAR(32),
- * delay           INT                 NOT NULL DEFAULT 0,
- * disable_policy  VARCHAR(32)         NOT NULL,
- * fail_policy     VARCHAR(32)         NOT NULL,
- * last_operator   VARCHAR(64)         NOT NULL,
- * last_update     BIGINT              NOT NULL,
- * PRIMARY KEY     (env_id)
- * );
- */
-public class PromoteBean implements Updatable, Serializable {
+public class PromoteBean extends BaseBean implements Updatable, Serializable {
     @JsonProperty("envId")
     private String env_id;
 
@@ -47,16 +37,19 @@ public class PromoteBean implements Updatable, Serializable {
     @JsonProperty("lastUpdate")
     private Long last_update;
 
-    private PromoteType type;
+    @NotNull private PromoteType type;
 
     @JsonProperty("predStage")
     private String pred_stage;
 
+    @Min(1)
+    @Max(Constants.DEFAULT_MAX_PROMOTE_QUEUE_SIZE)
     @JsonProperty("queueSize")
     private Integer queue_size;
 
     private String schedule;
 
+    @Min(0)
     private Integer delay;
 
     @JsonProperty("disablePolicy")
@@ -78,7 +71,7 @@ public class PromoteBean implements Updatable, Serializable {
     }
 
     public void setLast_operator(String last_operator) {
-        this.last_operator = last_operator;
+        this.last_operator = getStringWithinSizeLimit(last_operator, 64);
     }
 
     public Long getLast_update() {
@@ -164,5 +157,23 @@ public class PromoteBean implements Updatable, Serializable {
     @Override
     public String toString() {
         return ReflectionToStringBuilder.toString(this);
+    }
+
+    @ValidationMethod(message = "schedule must be a valid cron expression")
+    @JsonIgnore
+    public boolean isScheduleValid() {
+        if (type != PromoteType.AUTO) {
+            return true;
+        }
+        if (StringUtils.isBlank(schedule)) {
+            return true;
+        }
+
+        try {
+            new CronExpression(schedule);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 }

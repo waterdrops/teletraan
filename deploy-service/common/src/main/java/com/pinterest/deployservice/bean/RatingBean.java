@@ -1,12 +1,12 @@
 /**
- * Copyright 2016 Pinterest, Inc.
+ * Copyright (c) 2016-2024 Pinterest, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *  
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *    
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,18 +16,8 @@
 package com.pinterest.deployservice.bean;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import org.apache.commons.lang.builder.ReflectionToStringBuilder;
+import org.apache.commons.lang3.builder.ReflectionToStringBuilder;
 
-/**
- * create table user_ratings (
- * rating_id  VARCHAR(32)     NOT NULL,
- * author     VARCHAR(32)     NOT NULL,
- * rating     VARCHAR(8)      NOT NULL,
- * feedback   VARCHAR(4096)   NOT NULL,
- * timestamp  BIGINT          NOT NULL,
- * PRIMARY KEY (rating_id)
- * );
- */
 public class RatingBean implements Updatable {
     @JsonProperty("id")
     private String rating_id;
@@ -96,5 +86,4 @@ public class RatingBean implements Updatable {
     public String toString() {
         return ReflectionToStringBuilder.toString(this);
     }
-
 }

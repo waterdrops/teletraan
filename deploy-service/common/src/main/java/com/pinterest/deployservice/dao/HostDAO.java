@@ -1,12 +1,12 @@
-/*
- * Copyright 2016 Pinterest, Inc.
+/**
+ * Copyright (c) 2016-2024 Pinterest, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *  
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *    
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,14 +16,13 @@
 package com.pinterest.deployservice.dao;
 
 import com.pinterest.deployservice.bean.HostBean;
-
+import com.pinterest.deployservice.bean.HostBeanWithStatuses;
+import java.sql.SQLException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
-/**
- * A collection of methods to help hosts and groups mapping
- */
+/** A collection of methods to help hosts and groups mapping */
 public interface HostDAO {
     List<String> getGroupNamesByHost(String hostName) throws Exception;
 
@@ -33,7 +32,14 @@ public interface HostDAO {
 
     void insert(HostBean hostBean) throws Exception;
 
-    void insertOrUpdate(String hostName, String ip, String hostId, String state, Set<String> groupNames) throws Exception;
+    void insertOrUpdate(
+            String hostName,
+            String ip,
+            String hostId,
+            String state,
+            Set<String> groupNames,
+            String accountId)
+            throws Exception;
 
     void updateHostById(String hostId, HostBean hostBean) throws Exception;
 
@@ -47,21 +53,36 @@ public interface HostDAO {
 
     Long getGroupSize(String groupName) throws Exception;
 
-    List<HostBean> getHosts(String hostName) throws Exception;
+    List<HostBeanWithStatuses> getHosts(String hostName) throws Exception;
 
     List<HostBean> getAllActiveHostsByGroup(String groupName) throws Exception;
 
     List<HostBean> getHostsByHostId(String hostId) throws Exception;
 
+    List<String> getActiveHostIdsByHostIds(Collection<String> hostId) throws Exception;
+
     List<HostBean> getTerminatingHosts() throws Exception;
 
-    List<HostBean> getStaleEnvHosts(long after) throws Exception;
+    /**
+     * Return ids of hosts whose {@code last_update} falls within the half-open window {@code
+     * (lastUpdateAfter, lastUpdateBefore)} and that have no row in {@code hosts_and_agents}.
+     *
+     * <p>The lower bound exists to prevent the underlying index range scan from walking the entire
+     * historical {@code hosts} table; agentless hosts older than the lower bound are persistently
+     * broken and re-finding them on every cycle adds DB load without changing behavior. Pass {@code
+     * 0} for {@code lastUpdateAfter} to disable the lower bound.
+     */
+    List<String> getStaleAgentlessHostIds(long lastUpdateBefore, long lastUpdateAfter, int limit)
+            throws SQLException;
+
+    List<HostBean> getAgentlessHosts(long lastUpdateAfter, int limit) throws SQLException;
 
     Collection<HostBean> getHostsByEnvId(String envId) throws Exception;
 
     HostBean getByEnvIdAndHostId(String envId, String hostId) throws Exception;
 
-    Collection<HostBean> getByEnvIdAndHostName(String envId, String hostName) throws Exception;
+    Collection<HostBeanWithStatuses> getByEnvIdAndHostName(String envId, String hostName)
+            throws Exception;
 
     Collection<String> getToBeRetiredHostIdsByGroup(String groupName) throws Exception;
 
@@ -72,4 +93,8 @@ public interface HostDAO {
     Collection<String> getNewHostIdsByGroup(String groupName) throws Exception;
 
     Collection<String> getFailedHostIdsByGroup(String groupName) throws Exception;
+
+    Collection<String> getTerminatingHostIdsByGroup(String groupName) throws Exception;
+
+    String getAccountIdByHost(String hostName) throws Exception;
 }

@@ -17,11 +17,23 @@
     .ct-chart table td {
         text-align: center;
     }
+    .chosen-container-single .chosen-single div b {
+        background: url("chosen-sprite.png") no-repeat 7px 7px;
+    }
+    .chosen-container-single .chosen-single {
+        padding: 0 0 0 16px;
+    }
+    .chosen-disabled {
+      pointer-events: none;
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
 </style>
 <script type="text/javascript" src="//cdn.jsdelivr.net/chartist.js/latest/chartist.min.js"></script>
-<script type="text/javascript" src="{% static "js/components/sharedcomponents.js"%}?changedate=2016.12.19.150000"></script>
-<script type="text/javascript" src="{% static "js/components/capacitycomponents.js"%}?changedate=2017.07.05.180000"></script>
-<script type="text/javascript" src="{% static "js/components/clusterconfigcomponents.js"%}?changedate=2018.05.17.153000"></script>
+<script type="text/javascript" src="{% static "js/components/sharedcomponents.js"%}?changedate=2023.01.30"></script>
+<script type="text/javascript" src="{% static "js/components/capacitycomponents.js"%}?changedate=2023.01.30"></script>
+<script type="text/javascript" src="{% static "js/components/clusterconfigcomponents.js"%}?changedate=2023.08.22"></script>
+<script type="text/javascript" src="{% static "js/base-image-utils.js"%}?changedate=2023.01.30"></script>
 
 <div class="panel panel-default" id="side-panel">
     <div class="panel-heading clearfix">
@@ -34,16 +46,21 @@
         <side-button-nolink styleclass="fa fa-gears" v-on:click="buttonClick" v-bind:text="settingText" title="Cluster Configuration"></side-button-nolink>
     </div>
     <div v-if="!noCluster" class="row">
-        <side-button styleclass="glyphicon glyphicon-time" text="Replacement History" href="/env/{{ env.envName }}/{{ env.stageName }}/replacement" title="Replacement History"></side-button>
+        <side-button styleclass="glyphicon glyphicon-time" text="Base Image History" title="Base Image History"
+            href="/env/{{ env.envName }}/{{ env.stageName }}/base_images">
+        </side-button>
     </div>
-    <replace-cluster v-bind:clusterstate="clusterState" v-on:input="clusterAction"></replace-cluster>
+    <div v-if="!noCluster" class="row">
+        <side-button styleclass="glyphicon glyphicon-refresh" text="Cluster Replacement" title="Cluster Replacement"
+            href="/env/{{ env.envName }}/{{ env.stageName }}/cluster_replacements">
+        </side-button>
+    </div>
 </div>
 {% endblock %} {% block new-builds-panel %} {% endblock %} {% block new-pred-deploys-panel %} {% endblock %} {% block main %}
 
 <div id="clusterAlert">
     <in-rolling-alert v-show="showReplaceAlert" actionlink="/env/{{ env.envName }}/{{ env.stageName }}/config/cluster/config/"></in-rolling-alert>
 </div>
-{% include "environs/env_tabs.tmpl" with envTabKind="config/capacity" %}
 
 
 <div id="mainPanel" class="panel panel-default">
@@ -51,24 +68,37 @@
     <div id="envCapacityId" class="collapse in panel-body" v-on:show.bs.collapse="showcontent" v-on:hide.bs.collapse="hidecontent">
         <div class="container-fluid">
             <form id="clusterConfigFormId" class="form-horizontal" role="form">
-                <fieldset id="clusterConfigFieldSetId">
+                <fieldset id="clusterConfigFieldSetId" {% if is_managed_resource %}disabled{% endif %}>
                     <cloudprovider-select v-bind:cloudproviders="providers" v-bind:value="currentProvider" v-show="inAdvanced"></cloudprovider-select>
+                    <accounts-select v-bind:accounts="accounts" v-bind:value="currentAccountId" v-bind:disabled="!canChangeAccount"></accounts-select>
                     <cell-select v-bind:cells="cells" v-on:cellchange="cellChange"  v-bind:value="currentCell"></cell-select>
-                    <baseimage-select v-show="inAdvanced" v-bind:imagenames="imagenames" v-bind:baseimages="baseimages" v-bind:imagenamevalue="imageNameValue" v-bind:baseImageValue="baseImageValue"
-                    v-on:baseimagechange="baseImageChange" v-on:imagenamechange="imageNameChange" v-bind:inadvanced="inAdvanced" showhelp="true" v-on:helpclick="baseImageHelpClick">
+                    <arch-select v-bind:arches="arches" v-on:archchange="archChange"  v-bind:value="currentArch"></arch-select>
+                    <baseimage-select v-show="inAdvanced" v-model="pinImage" :pin-image-enabled="pinImageEnabled"
+                        :image-names="imageNames" :base-images="baseImages" v-bind:account-owner-id="currentAccountOwnerId"
+                        :selected-image-name="imageNameValue" :selected-base-image="baseImageValue"
+                        @base-image-change="baseImageChange" @image-name-change="imageNameChange" @help-clicked="baseImageHelpClick" >
                     </baseimage-select>
                     <base-image-help v-show="showBaseImageHelp" v-bind:data="baseImageHelpData"></base-image-help>
-                    <label-select label="Host Type" title="Compute Capability of the host" v-model="selectedHostTypeValue" v-bind:selectoptions="hostTypeOptions"
-                        v-on:input="updateImageNameForEbsHost" showhelp="true" v-on:helpclick="hostTypeHelpClick"></label-select>
+                    <hosttype-select label="Host Type" title="Compute Capability of the host" v-model="selectedHostTypeValue" v-bind:selectoptions="hostTypeOptions" v-bind:disablebackupinstancetypes="disableBackupInstanceTypes" selectsearch="true"
+                    showhelp="true" v-on:helpclick="hostTypeHelpClick" v-bind:enablemultiplehosttypes="enableMultipleHostTypes" v-on:enablemultiplehosttypesclick="selecttypes"></hosttype-select>
                     <hostype-help v-show="showHostTypeHelp" v-bind:data="hostTypeHelpData"></hostype-help>
+                    <backup-hosttypes v-bind:backuphosttypes="backupHosttypes"></backup-hosttypes>
+                    <bandwidth-weight-select v-bind:bandwidthweights="bandwidthweights" v-bind:canchangebandwidth="canChangeBandwidth" v-on:bandwidthchange="bandwidthChange" v-bind:value="currentBandwidthWeight"></bandwidth-weight-select>
                     <label-select label="Security Zone" title="Security zone to control inbound/outboud traffic" v-model="selectedSecurityZoneValue" v-bind:selectoptions="securityZones"
                     showhelp="true" v-on:helpclick="securityZoneHelpClick"></label-select>
                     <securityzone-help v-show="showSecurityZoneHelp" v-bind:data="securityZoneHelpData"></securityzone-help>
-                    <placements-select label="Placements" title="Placements" v-bind:selectoptions="placements" v-bind:assignpublicip="assignPublicIP"
-                    showhelp="true" v-on:helpclick="placementsHelpClick" v-on:assignpublicipclick="selectpublicip"></placements-select>
+                    <placements-select label="Placements" title="Placements" showsubnettype="true" v-bind:selectoptions="placements" v-bind:assignpublicip="assignPublicIP" v-bind:subnettype="subnetType"
+                 showhelp="true" v-on:helpclick="placementsHelpClick" v-on:assignpublicipclick="selectpublicip" v-on:subnetfilterclick="changeSubnetType"></placements-select>
+                    <remaining-capacity title="The total remaining subnet capacity of selected placements" v-bind:remainingcapacity="remainingCapacity" v-bind:inadvanced="inAdvanced"></remaining-capacity>
+                    <form-warning v-show="showSubnetReplacementAlert" v-bind:alert-text="subnetReplacementWarning"></form-warning>
                     <placements-help v-show="showPlacementsHelp" v-bind:data="placementsHelpData"></placements-help>
+                    <stateful-select :statefuloptions="statefulStatusOptions" :value="currentStatefulStatus" @help-clicked="statefulHelpClick" @stateful-change="statefulStatusChange"></stateful-select>
+                    <stateful-help v-show="showStatefulHelp"></stateful-help>
                     <div v-if="inAdvanced">
-                        <div class="form-group"></div>
+                        <div class="form-group">
+                          <ebs-check-checkbox v-bind:use-ebs-check="useEbsCheck" v-on:on-use-ebs-check-click="onUseEbsCheckClick" v-bind:show-use-ebs-check-help="showUseEbsCheckHelp" v-on:help-clicked="onUseEbsCheckHelpClick"></ebs-check-checkbox>
+                          <ena-express-checkbox v-bind:use-ena-express="useEnaExpress" v-on:on-use-ena-express-click="onUseEnaExpressClick" v-bind:show-use-ena-express-help="showUseEnaExpressHelp" v-on:help-clicked="onUseEnaExpressHelpClick"></ena-express-checkbox>
+                        </div>
                         <div class="form-group">
                             <label class="deployToolTip control-label col-xs-2" data-toggle="tooltip"  title="Customize user data">User data configs:</label>
                             {% if is_pinterest %}
@@ -79,52 +109,92 @@
                                 <aws-config-modal id="newConfigModalId" v-bind:options="availableConfigOptions()" v-on:click="addConfig"></aws-config-modal>
                             </div>
                         </div>
-                        <aws-user-data v-bind:alluserdata="allUserData" v-on:deleteconfig="deleteConfig" v-on:change="configChange" v-bind:inadvanced="inAdvanced" v-bind:showcmpgroup="showCmpGroup"></aws-user-data>
+                        <deployservice-warning-banner :deployservicewikiurl="deployServiceWikiUrl" :alluserdata="allUserData"></deployservice-warning-banner>
+                        <aws-user-data
+                            v-bind:alluserdata="allUserData"
+                            v-on:deleteconfig="deleteConfig"
+                            v-on:change="configChange"
+                            v-bind:inadvanced="inAdvanced"
+                            v-bind:showcmpgroup="showCmpGroup"
+                            v-bind:hierapaths="hieraPaths"
+                            v-bind:puppetrepository="puppetRepository"
+                        />
                     </div>
                 </fieldset>
+                {% if is_managed_resource %}
+                <div class="form-group">
+                    <label class="control-label col-xs-2" for="isManagedResourceCheckboxId" style="padding-top: 0px">Resource is managed</label>
+                    <div class="col-xs-2">
+                        <input type="checkbox" id="isManagedResourceCheckboxId" checked>
+                    </div>
+                </div>
+                <div class="form-group" id="resourceManagedBanner" style="display: none;">
+                    <div class="col-xs-offset-2">
+                        <div class="alert alert-info">
+                            <strong>Note:</strong> This box cannot be manually re-checked once unchecked. Unchecking this box will disable resource management. The cluster must be re-onboarded to re-enable resource management.
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
             </form>
         </div>
     </div>
     <modal v-bind:title="confirmDialogTitle" v-bind:id="confirmDialogId" v-on:input="clickDialog">
-        <div slot="body">Are you sure to save the changes?</div>
+        <div slot="body">Are you sure to save the changes? <br><br>Please note that the saved settings will only apply for newly launched hosts. If you have existing hosts in your cluster, you can replace your cluster to perform a rolling replacement of all existing hosts.</div>
     </modal>
 
     <div class="panel-footer clearfix">
         <div class="pull-right">
-            <button id="saveEnvCapacityBtnId" class="btn btn-primary" v-bind:disabled="!canSaveCapacity" data-target="#updateClusterSettings" data-toggle="modal" data-loading-text="Creating...">
+            <button id="saveEnvCapacityBtnId" class="btn btn-primary" v-bind:disabled="!canSaveCapacity" data-target="#updateClusterSettings" data-toggle="modal" data-loading-text="Creating..." {% if is_managed_resource %}disabled{% endif %}>
             <span class="glyphicon glyphicon-floppy-save"></span> Save
         </button>
         </div>
     </div>
 </div>
+{% if is_managed_resource %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const checkbox = document.getElementById('isManagedResourceCheckboxId');
+        const fieldset = document.getElementById('clusterConfigFieldSetId');
+        const submitBtn = document.getElementById('saveEnvCapacityBtnId');
+        const chosenContainerSingle = fieldset.querySelector('.chosen-container-single');
+        const chosenContainerMulti = fieldset.querySelector('.chosen-container-multi');
+        const banner = document.getElementById('resourceManagedBanner');
 
-<div id="replaceProgressPanel" v-show="show" class="panel panel-default">
-    <div class="panel-heading clearfix">
-        <h4 class="panel-title pull-left pointer-cursor">
-            <a data-toggle="collapse" data-target="#activeClusterReplaceId">
-                <span class="glyphicon glyphicon-chevron-down"></span>
-                <span v-if="state == 'REPLACE'">Active Replacement</span>
-                <span v-if="state == 'PAUSE'">Active Replacement (Paused)</span>
-            </a>
-        </h4>
-    </div>
-    <div id="activeClusterReplaceId" class="collapse in panel-body">
-        {% include "clusters/replace_progress.tmpl" %}
-    </div>
-</div>
+        if (!!checkbox.checked) {
+            if (chosenContainerSingle) {
+                chosenContainerSingle.classList.add('chosen-disabled');
+            }
+            if (chosenContainerMulti) {
+                chosenContainerMulti.classList.add('chosen-disabled');
+            }
+        }
+        checkbox.addEventListener('change', function() {
+            fieldset.disabled = !!checkbox.checked;
+            submitBtn.disabled = !!checkbox.checked;
+            banner.style.display = checkbox.checked ? 'none' : 'block';
 
-<div id="activeClusterReplaceGraph" v-show="show" class="panel panel-default">
-    <div class="panel-heading clearfix">
-        <h4 class="panel-title pull-left pointer-cursor">
-            <a data-toggle="collapse" data-target="#activeClusterReplaceGraph">
-                <span class="glyphicon glyphicon-chevron-down"></span>
-                <span>Host Activities During Replacement</span>
-            </a>
-        </h4>
-    </div>
-    <div class="ct-chart"></div>
-    <div id="tooltip" class="alert alert-info" style="display:none; top: 10px; right:20px;"></div>
-</div>
+            // This disables the fields which are controlled by the jQuery plugin called Chosen,
+            // which generates additional elements that are not handled when disabling the form's fieldset
+            if (!!checkbox.checked) {
+                if (chosenContainerSingle) {
+                    chosenContainerSingle.classList.add('chosen-disabled');
+                }
+                if (chosenContainerMulti) {
+                    chosenContainerMulti.classList.add('chosen-disabled');
+                }
+            } else {
+                if (chosenContainerSingle) {
+                    chosenContainerSingle.classList.remove('chosen-disabled');
+                }
+                if (chosenContainerMulti) {
+                    chosenContainerMulti.classList.remove('chosen-disabled');
+                }
+            }
+        });
+    });
+</script>
+{% endif %}
 <script>
 /**
  * Chartist.js plugin that generates visually hidden tables for better accessibility. It's also possible to initialize a Chart with data from an existing table.
@@ -413,6 +483,9 @@
     var info = {{capacity_creation_info | safe}};
     var env = info.environment;
     var currentCluster = info.currentCluster;
+    var asgLaunchInfo = currentCluster.asg_info.launchInfo;
+    var statefulOptions = info.stateful_options;
+    const goldenImage = info.baseImages.find(goldenImageFinder);
     if (currentCluster!=null){
         var currentPlacements = currentCluster.placement.split(',');
         var placements = getDefaultPlacement(info);
@@ -423,58 +496,85 @@
                 showReplaceAlert: showReplaceAlert
             }
         });
+        const initialAssignPublicIP = currentCluster.configs.assign_public_ip === "true" ;
+        const initialEnableMultipleHostTypes = currentCluster.enableMultipleHostTypes === true ;
+        const initialCell = currentCluster.cellName;
+        var baseImagesSorted = info.baseImages.sort(baseImageSorter);
 
-        var sorted = info.baseImages.sort(function(item1, item2) {
-            return item2.publish_date - item1.publish_date;
-        });
+        if (currentCluster.baseImage != null) {
+            ensureCurrentImageIsIncluded(baseImagesSorted, currentCluster.baseImage);
+        }
+
+        var readonlyValues = info.readonlyFields.reduce((obj, field) => {
+            obj[field] = field in currentCluster.configs ? currentCluster.configs[field] : null
+            return obj;
+        }, {});
+
+        const hieraPaths = `{{ puppet_hiera_paths }}`;
+        const puppetRepository = `{{ puppet_repository }}`;
+        const deployServiceWikiUrl = `{{ conflicting_deploy_service_wiki_url }}`;
+        const disableBackupInstanceTypes = `{{ disable_backup_instance_types}}`;
 
         var capacitySetting = new Vue({
             el: "#mainPanel",
-            data: {
+            data: Object.assign(readonlyValues, {
                 allUserData:  Object.keys(currentCluster.configs).map(
                         function(key) {
                             return {
                                 name: key,
                                 value: currentCluster.configs[key],
-                                readonly: key === 'spiffe_id'
+                                readonly: info.readonlyFields.indexOf(key) >= 0
                             }
                         }).filter(function(item){return item.name!='assign_public_ip'}),
-                spiffeId: 'spiffe_id' in currentCluster.configs ? currentCluster.configs['spiffe_id']:null,
-                assignPublicIP: currentCluster.configs.assign_public_ip == "true" ? true : false,
+                assignPublicIP: initialAssignPublicIP,
+                enableMultipleHostTypes: initialEnableMultipleHostTypes,
                 awsRole: currentCluster.configs.aws_role,
-                baseimages: info.baseImages.map(function(o) {
-                    var acceptance = o.acceptance ? ' [' + o.acceptance + ']' : '';
-                    return {
-                        value: o.id,
-                        text: o.provider_name + acceptance,
-                        isSelected: o.id === currentCluster.baseImageId
-                    }
-                }),
+                capacity: currentCluster.capacity != asgLaunchInfo.minSize ? asgLaunchInfo.minSize : currentCluster.capacity,
+                useLaunchTemplate: currentCluster.useLaunchTemplate != null ? currentCluster.useLaunchTemplate : info.defaultUseLaunchTemplate,
+                baseImages: mapBaseImagesToOptions(baseImagesSorted),
                 baseImageValue: currentCluster.baseImageId,
+                pinImage: getPinImageValue(goldenImage, currentCluster.autoUpdateBaseImage),
+                pinImageEnabled: isPinImageEnabled(goldenImage),
                 confirmDialogTitle: "Update Cluster Settings",
                 confirmDialogId: "updateClusterSettings",
                 currentProvider: currentCluster.provider,
+                currentAccountId: currentCluster.accountId,
+                currentAccountOwnerId: getAccountOwnerId(this.currentAccountId),
                 currentCell: currentCluster.cellName,
+                currentArch: currentCluster.archName,
+                currentBandwidthWeight: currentCluster.bandwidthWeighting,
+                useEbsCheck: asgLaunchInfo.useEbsCheck,
+                useEnaExpress: asgLaunchInfo.useEnaExpress,
+                showUseEbsCheckHelp: false,
+                showUseEnaExpressHelp: false,
+                currentStatefulStatus: currentCluster.statefulStatus,
                 hostTypeOptions: info.hostTypes.map(function(item, idx) {
                     return {
-                        value: item.abstract_name,
-                        text: item.abstract_name + " (" + item.core + " cores, " + item.mem + " GB, " + item.storage + ", " + item.provider + ": " + item.provider_name + ")",
-                        isSelected: item.abstract_name === currentCluster.hostType
+                        value: item.id,
+                        text: item.provider_name + " (" + item.core + " cores, " + item.mem + " GB, " + item.storage + ", " + item.network + ", " + item.provider + ": " + item.abstract_name + ")",
+                        isSelected: item.id === currentCluster.hostType,
+                        isDisabled: item.retired
                     }
                 }),
                 imageNameValue: currentCluster.baseImageName,
-                imagenames: info.baseImageNames.map(function(o) {
+                imageNames: mapImageNameToOptions(info.baseImageNames),
+                inAdvanced: false,
+                initialCell: this.currentCell,
+                placements: this.inAdvanced ?
+                    placements.getFullList(initialAssignPublicIP, currentPlacements) :
+                    placements.getSimpleList(initialAssignPublicIP, currentPlacements),
+                accounts: info.accounts?.map(account => ({
+                    value: account.id,
+                    text: `${account.ownerId} / ${account.name} / ${account.description}`,
+                    isSelected: account.id === currentCluster.accountId
+                })),
+                providers: info.providerList.map(function(o) {
                     return {
                         value: o,
-                        text: o,
-                        isSelected: o === currentCluster.baseImageName
+                        text: o
                     }
                 }),
-                inAdvanced: false,
-                placements: this.inAdvanced ?
-                    placements.getFullList(currentCluster.configs.assign_public_ip, currentPlacements) :
-                    placements.getSimpleList(currentCluster.configs.assign_public_ip, currentPlacements),
-                providers: info.providerList.map(function(o) {
+                statefulStatusOptions: statefulOptions.map(function(o) {
                     return {
                         value: o,
                         text: o
@@ -488,6 +588,22 @@
                             isSelected: item.name == currentCluster.cellName
                         }
                     }),
+                arches: info.arches.map(
+                    function (item) {
+                        return {
+                            value: item.name,
+                            text: item.name,
+                            isSelected: item.name == currentCluster.archName
+                        }
+                    }),
+                bandwidthweights: info.bandwidthWeights.map(function(item) {
+                    return {
+                        value: item.name,
+                        text: item.name,
+                        isSelected: item.name === currentCluster.bandwidthWeighting
+                    }
+                }),
+                terminateLimit: currentCluster.terminateLimit,
                 securityZones: info.securityZones.map(function(item) {
                     return {
                         value: item.abstract_name,
@@ -502,13 +618,26 @@
                 baseImageHelpData: [],
                 showHostTypeHelp: false,
                 hostTypeHelpData:[],
+                backupHosttypes: getBackupIds(info.hostTypesMapping, info.hostTypes, currentCluster.hostType, initialEnableMultipleHostTypes),
+                hostTypes: info.hostTypes,
                 showSecurityZoneHelp: false,
                 securityZoneHelpData: [],
                 showPlacementsHelp: false,
                 placementsHelpData: [],
+                canChangeAccount: false,
+                canChangeBandwidth: checkHostType(info.hostTypes, currentCluster.hostType),
                 canSaveCapacity: !showReplaceAlert,
-                showCmpGroup: Boolean(getUrlParameter("showcmpgroup"))
-            },
+                showCmpGroup: Boolean(getUrlParameter("showcmpgroup")),
+                subnetType: initialAssignPublicIP ? "public" : "private",
+                showSubnetReplacementAlert: false,
+                subnetReplacementWarning: "Cluster can't have a mix of public and private subnets. Saving this config will remove existing subnets.",
+                remainingCapacity: this.placements != null ? getRemainingCapacity(info.placements, currentPlacements) : Infinity,
+                showStatefulHelp: false,
+                puppetRepository,
+                hieraPaths,
+                deployServiceWikiUrl,
+                disableBackupInstanceTypes,
+            }),
             methods: {
                 addConfig: function(config) {
                     var filter = this.allUserData.filter(function(data) {
@@ -560,156 +689,228 @@
                             })
                             capacitySetting.baseImageHelpData = data
                             capacitySetting.showBaseImageHelp = true
-                        })
+                        }, {cell: capacitySetting.currentCell})
                     }
                 },
                 baseImageChange: function(value) {
                     this.baseImageValue = value
                 },
                 deleteConfig: function(name) {
+                    if (name == 'root_volume_type') {
+                        globalNotificationBanner.info = "On deleting this configuration and saving it, the root volume type will be set to default value, which is gp3 currently"
+                    }
                     this.allUserData = this.allUserData.filter(function(config) {
                         return config.name != name
                     })
                 },
-                getHelpInfo: function(path, onSuccess){
-                        $.ajax({
-                            type: 'GET',
-                            url: location.protocol + '//' + location.host + '/clouds/'+path+'/',
-                            dataType: "json",
-                            beforeSend: function(xhr, settings) {
-                                var csrftoken = getCookie('csrftoken')
-                                xhr.setRequestHeader("X-CSRFToken", csrftoken);
-
-                            },
-                            success: function(data){
-                                onSuccess(data)
-                            },
-                            error: function(data) {
-                                globalNotificationBanner.error = ["Request Error: ", data.status, data.statusText, data.responseText].join(' ');
-                            }
-                        });
-                },
-                hostTypeHelpClick: function(){
-                    if (this.showHostTypeHelp){
-                        this.showHostTypeHelp = false;
-                    }
-                    else{
-                        this.getHelpInfo('get_host_type_info', function(data){
-                                capacitySetting.hostTypeHelpData = data
-                                capacitySetting.showHostTypeHelp = true
-                        })
-                    }
-                },
-                cellChange: function(value) {
-                    capacitySetting.cellValue = value;
-                    capacitySetting.currentCell = value;
-                    // grab all the image names
-                    var scope = this;
-                    var provider = capacitySetting.currentProvider;
-                    var cell = value;
+                getHelpInfo: function(path, onSuccess, params){
+                    const searchParams = new URLSearchParams(params);
+                    const seachParamStr = params != null ? `?${searchParams}` : '';
                     $.ajax({
                         type: 'GET',
-                        url: location.protocol + '//' + location.host + '/clouds/image_names/' + provider + '/' + cell,
-                        dataType: "json",
-                        beforeSend: function (xhr) {
-                            var csrftoken = getCookie('csrftoken');
-                            xhr.setRequestHeader("X-CSRFToken", csrftoken);
-                        },
-                        success: function (data) {
-                            capacitySetting.imagenames = data.map(
-                                    function (o) {
-                                        return {
-                                            value: o,
-                                            text: o, isSelected: o === data[0]
-                                        }
-                                    });
-                            capacitySetting.imageNameValue = data[0];
-                            scope.imageNameChange(data[0]);
-                        },
-                        error: function (data) {
-                            globalNotificationBanner.error = data
-                        }
-                    });
-
-                     // grab all security zone for this cell
-            $.ajax({
-                type: 'GET',
-                url: location.protocol + '//' + location.host + '/clouds/securityzones/' + provider + '/' + cell,
-                dataType: "json",
-                beforeSend: function (xhr) {
-                    var csrftoken = getCookie('csrftoken');
-                    xhr.setRequestHeader("X-CSRFToken", csrftoken);
-                },
-                success: function (data) {
-                    capacitySetting.securityZones = data.map(
-                        function (item) {
-                            return {
-                                value: item.abstract_name,
-                                text: item.abstract_name,
-                                isSelected: item.id === data[0].id
-                            }
-                        });
-                    capacitySetting.selectedSecurityZoneValue = data[0].abstract_name;
-                },
-                error: function (data) {
-                    globalNotificationBanner.error = data
-                }
-            });
-            // grab all placement for this cell
-            $.ajax({
-                type: 'GET',
-                url: location.protocol + '//' + location.host + '/clouds/placements/' + provider + '/' + cell,
-                dataType: "json",
-                beforeSend: function (xhr) {
-                    var csrftoken = getCookie('csrftoken');
-                    xhr.setRequestHeader("X-CSRFToken", csrftoken);
-                },
-                success: function (data) {
-                    var placements = getDefaultPlacement({'placements': data});
-
-                    capacitySetting.placements =  placements.allPrivate.map(
-                        function (item, index) {
-                            return {
-                                value: item.id,
-                                text: item.provider_name,
-                                isSelected: index < 3 //Select Top 3 by default
-                            }
-                        });
-                },
-                error: function (data) {
-                    globalNotificationBanner.error = data
-                }
-            })
-
-                },
-                imageNameChange: function(value) {
-                    var cell = capacitySetting.currentCell;
-                    capacitySetting.imageNameValue = value;
-                    //Grab all images for this image name
-                    $.ajax({
-                        type: 'GET',
-                        url: location.protocol + '//' + location.host + '/clouds/get_base_images/' + value + '?cell=' + cell,
+                        url: `${location.protocol}//${location.host}/clouds/${path}/${seachParamStr}`,
                         dataType: "json",
                         beforeSend: function(xhr, settings) {
                             var csrftoken = getCookie('csrftoken')
                             xhr.setRequestHeader("X-CSRFToken", csrftoken);
 
                         },
-                        success: function(data) {
-                            sorted = data.sort(function(item1, item2) {
-                                return item2.publish_date - item1.publish_date;
-                            })
-                            capacitySetting.baseimages = sorted.map(function(o) {
-                                var acceptance = o.acceptance ? ' [' + o.acceptance + ']' : '';
-                                return {
-                                    value: o.id,
-                                    text: o.provider_name + acceptance
-                                }
-                            })
-                            capacitySetting.baseImageValue = sorted[0].id
+                        success: function(data){
+                            onSuccess(data)
                         },
                         error: function(data) {
-                            globalNotificationBanner.error = data
+                            globalNotificationBanner.error = ["Request Error: ", data.status, data.statusText, data.responseText].join(' ');
+                        }
+                    });
+                },
+                hostTypeHelpClick: function(){
+                    if (this.showHostTypeHelp){
+                        this.showHostTypeHelp = false;
+                    }
+                    else{
+                        this.getHelpInfo('get_host_types/' + capacitySetting.currentArch, function(data){
+                                capacitySetting.hostTypeHelpData = data
+                                capacitySetting.showHostTypeHelp = true
+                            }, {cell: capacitySetting.currentCell})
+                    }
+                },
+                cellChange: function(value) {
+                    capacitySetting.currentCell = value;
+                    // grab all the image names
+                    var scope = this;
+                    var provider = capacitySetting.currentProvider;
+                    var arch = capacitySetting.currentArch;
+                    var cell = value;
+                    $.ajax({
+                        type: 'GET',
+                        url: location.protocol + '//' + location.host + '/clouds/image_names/' + provider + '/' + cell + '/' + arch,
+                        dataType: "json",
+                        beforeSend: function (xhr) {
+                            var csrftoken = getCookie('csrftoken');
+                            xhr.setRequestHeader("X-CSRFToken", csrftoken);
+                        },
+                        success: function (data) {
+                            capacitySetting.imageNames = mapImageNameToOptions(data);
+                            capacitySetting.imageNameValue = data[0];
+                            scope.imageNameChange(data[0]);
+                        },
+                        error: function (data) {
+                            globalNotificationBanner.error = data.responseJSON.error;
+                        }
+                    });
+
+                     // grab all security zone for this cell
+                    const securityZonesUrl =
+                        `${location.protocol}//${location.host}/clouds/securityzones/${provider}/${cell}` +
+                        `?accountId=${this.currentAccountId}`
+                    $.ajax({
+                        type: 'GET',
+                        url: securityZonesUrl,
+                        dataType: "json",
+                        beforeSend: function (xhr) {
+                            var csrftoken = getCookie('csrftoken');
+                            xhr.setRequestHeader("X-CSRFToken", csrftoken);
+                        },
+                        success: function (data) {
+                            capacitySetting.securityZones = data?.map(
+                                function (item) {
+                                    return {
+                                        value: item.abstract_name,
+                                        text: item.abstract_name,
+                                        isSelected: item.id === data[0].id
+                                    }
+                                }) ?? [];
+                            capacitySetting.selectedSecurityZoneValue = data[0]?.abstract_name;
+                        },
+                        error: function (data) {
+                            globalNotificationBanner.error = data.responseJSON.error;
+                        }
+                    });
+
+                    // grab all placement for this cell
+                    const placementsUrl =
+                        `${location.protocol}//${location.host}/clouds/placements/${provider}/${cell}` +
+                        `?accountId=${this.currentAccountId}`
+                    $.ajax({
+                        type: 'GET',
+                        url: placementsUrl,
+                        dataType: "json",
+                        beforeSend: function (xhr) {
+                            var csrftoken = getCookie('csrftoken');
+                            xhr.setRequestHeader("X-CSRFToken", csrftoken);
+                        },
+                        success: function (data) {
+                            var placements = data ? getDefaultPlacement({'placements': data}) : null;
+                            capacitySetting.placements =
+                                placements ? placements.getFullList(false, cell == initialCell ? currentPlacements : null) : null;
+                        },
+                        error: function (data) {
+                            globalNotificationBanner.error = data.responseJSON.error;
+                        }
+                    })
+                },
+                archChange: function(value) {
+                    capacitySetting.archValue = value;
+                    capacitySetting.currentArch = value;
+                    // grab all the image names
+                    var scope = this;
+                    var provider = capacitySetting.currentProvider;
+                    var cell = capacitySetting.currentCell;
+                    var arch = value;
+                    $.ajax({
+                        type: 'GET',
+                        url: location.protocol + '//' + location.host + '/clouds/image_names/' + provider + '/' + cell + '/' + arch,
+                        dataType: "json",
+                        beforeSend: function (xhr) {
+                            var csrftoken = getCookie('csrftoken');
+                            xhr.setRequestHeader("X-CSRFToken", csrftoken);
+                        },
+                        success: function (data) {
+                            let imageName = data[0];
+                            capacitySetting.imageNames = mapImageNameToOptions(data);
+                            info.baseImageNames = data;
+                            capacitySetting.imageNameValue = imageName;
+                            scope.imageNameChange(imageName);
+                        },
+                        error: function (data) {
+                            globalNotificationBanner.error = data.responseJSON.error;
+                        }
+                    });
+                    // grab all the host types
+                    $.ajax({
+                        type: 'GET',
+                        url: location.protocol + '//' + location.host + '/clouds/get_host_types/' + arch,
+                        dataType: "json",
+                        beforeSend: function (xhr) {
+                            var csrftoken = getCookie('csrftoken');
+                            xhr.setRequestHeader("X-CSRFToken", csrftoken);
+                        },
+                        success: function (data) {
+                            capacitySetting.hostTypeOptions = data.map(
+                                    function (item) {
+                                        return {
+                                            value: item.id,
+                                            text: item.provider_name + " (" + item.core + " cores, " + item.mem + " GB, " + item.storage + ", " + item.network + ", " + item.provider + ": " + item.abstract_name + ")",
+                                            isSelected: item.id === data[0],
+                                            isDisabled: item.retired
+                                        }
+                                    });
+                            capacitySetting.selectedHostTypeValue = data[0].id;
+                            capacitySetting.enableMultipleHostTypes = false;
+                            capacitySetting.backupHosttypes = "None";
+                            capacitySetting.hostTypes = data;
+                            capacitySetting.canChangeBandwidth = checkHostType(capacitySetting.hostTypes, capacitySetting.selectedHostTypeValue);
+                            capacitySetting.currentBandwidthWeight = "default";
+                            capacitySetting.bandwidthweights = info.bandwidthWeights.map(function(item) {
+                                return {
+                                    value: item.name,
+                                    text: item.name,
+                                    isSelected: item.name === "default"
+                                }
+                            });
+                            //Schedule this to nextTick that calls after next DOM refresh
+                            //as JQuery chosen call must happen after DOM updates finished
+                            Vue.nextTick(function(){
+                                $(".single-select-search").trigger("chosen:updated")
+                            })
+                        },
+                        error: function (data) {
+                            globalNotificationBanner.error = data.responseJSON.error;
+                        }
+                    });
+                },
+                imageNameChange: function(value) {
+                    var cell = capacitySetting.currentCell;
+                    var arch = capacitySetting.currentArch;
+                    capacitySetting.imageNameValue = value;
+                    //Grab all images for this image name
+                    $.ajax({
+                        type: 'GET',
+                        url: location.protocol + '//' + location.host + '/clouds/get_base_images/' + value + '?cell=' + cell + '&arch=' + arch,
+                        dataType: "json",
+                        beforeSend: function(xhr, settings) {
+                            var csrftoken = getCookie('csrftoken')
+                            xhr.setRequestHeader("X-CSRFToken", csrftoken);
+                        },
+                        success: function(baseImages) {
+                            const baseImagesSorted = baseImages.sort(baseImageSorter);
+                            const goldenImage = baseImages.find(goldenImageFinder);
+
+                            var defaultImageId;
+                            if (currentCluster.baseImageName == value && currentCluster.cellName == cell && capacitySetting.pinImage) {
+                                ensureCurrentImageIsIncluded(baseImagesSorted, currentCluster.baseImage);
+                                defaultImageId = currentCluster.baseImageId;
+                            } else{
+                                defaultImageId = goldenImage ? goldenImage.id : getDefaultBaseImageId(baseImagesSorted);
+                            }
+
+                            capacitySetting.baseImages = mapBaseImagesToOptions(baseImagesSorted);
+                            capacitySetting.baseImageValue = defaultImageId;
+                            capacitySetting.pinImage = getPinImageValue(goldenImage, currentCluster.autoUpdateBaseImage)
+                            capacitySetting.pinImageEnabled = isPinImageEnabled(goldenImage);
+                        },
+                        error: function(data) {
+                            globalNotificationBanner.error = data.responseJSON.error;
                         }
                     });
                 },
@@ -717,38 +918,12 @@
                     var cell = capacitySetting.currentCell;
                     var scope = this;
                     var provider = capacitySetting.currentProvider;
-                    value = 'cmp_base-ebs';
-                    if (this.selectedHostTypeValue.startsWith('EbsCompute')) {
+                    value = '{{ default_cmp_image }}';
+                    const selectedHostTypeObject = capacityCreationInfo.hostTypes.find(hostType => hostType.id === this.selectedHostTypeValue);
+                    if (selectedHostTypeObject.abstract_name.startsWith('EbsCompute')) {
                         capacitySetting.imageNameValue = value;
-                        capacitySetting.imagenames = info.baseImageNames.map(
-                            function (o) {
-                                return {
-                                    value: o,
-                                    text: o,
-                                    isSelected: o === value
-                                }
-                            }),
-                            scope.imageNameChange(value);
-
-                        //Grab all images for this image name
-                        $.ajax({
-                            type: 'GET',
-                            url: location.protocol + '//' + location.host + '/clouds/get_base_images/' + value + '?cell=' + cell,
-                            dataType: "json",
-                            beforeSend: function (xhr, settings) {
-                                var csrftoken = getCookie('csrftoken')
-                                xhr.setRequestHeader("X-CSRFToken", csrftoken);
-
-                            },
-                            success: function (data) {
-                                sorted = data.sort(function (item1, item2) { return item2.publish_date - item1.publish_date; })
-                                capacitySetting.baseimages = sorted.map(function (o) { return { value: o.id, text: o.provider_name } })
-                                capacitySetting.baseImageValue = sorted[0].id
-                            },
-                            error: function (data) {
-                                globalNotificationBanner.error = data
-                            }
-                        });
+                        capacitySetting.imageNames = mapImageNameToOptions(info.baseImageNames);
+                        scope.imageNameChange(value);
                     }
                 },
                 placementsHelpClick: function(){
@@ -769,10 +944,12 @@
                         return false
                     }
 
-                    //Validate spiffe_id not modified by user
-                    if ('spiffe_id' in clusterInfo.configs && clusterInfo.configs['spiffe_id'] != this.spiffeId){
-                        globalNotificationBanner.error = "spiffe id cannot be modified by user"
-                        return false
+                    for (var i in info.readonlyFields) {
+                        var readonlyField = info.readonlyFields[i];
+                        if (readonlyField in clusterInfo.configs && clusterInfo.configs[readonlyField] != this[readonlyField]){
+                            globalNotificationBanner.error = readonlyField + " cannot be modified by user"
+                            return false
+                        }
                     }
 
                     if (imageNameValue.startsWith('cmp_base')){
@@ -780,7 +957,6 @@
                             globalNotificationBanner.error = "cmp_base image must have pinfo_role set to cmp_base"
                             return false
                         }
-
                     }
                     else{
                         if ('pinfo_role' in clusterInfo.configs && clusterInfo.configs['pinfo_role']==='cmp_base'){
@@ -796,6 +972,11 @@
 
                     if (imageNameValue === 'cmp_base' && clusterInfo.hostType.startsWith('EbsCompute')){
                         globalNotificationBanner.error = "EbsCompute  instance must use ebs AMI. Try cmp_base-ebs"
+                        return false
+                    }
+
+                    if ('root_volume_type' in clusterInfo.configs && !(["gp2", "gp3"].includes(clusterInfo.configs['root_volume_type']))) {
+                        globalNotificationBanner.error = "At this time only gp2 and gp3 root volume types are supported"
                         return false
                     }
 
@@ -833,13 +1014,47 @@
                 },
                 selectpublicip: function(value){
                     this.assignPublicIP = value
+                    if (this.assignPublicIP && this.subnetType == 'private' ||
+                        !this.assignPublicIP && this.subnetType == 'public') {
+                        globalNotificationBanner.error =
+                            `Warning: You ${this.assignPublicIP ? 'selected' :'unselected'} 'Assign Public IP' for ${this.subnetType} subnet type. ` +
+                            `Please double check if this is desired. If you DO require this configuration, please report your scenario to the Teletraan team.`
+                    }
+                    else {
+                        globalNotificationBanner.error = ""
+                    }
+                },
+                selecttypes: function(value){
+                    this.enableMultipleHostTypes = value;
+                    this.backupHosttypes = getBackupIds(info.hostTypesMapping, capacitySetting.hostTypes, capacitySetting.selectedHostTypeValue, this.enableMultipleHostTypes);
+                },
+                changeSubnetType: function(value) {
+                    this.subnetType = value
+                    var showPublicSubnets = value == 'public' ? true : false
+                    this.assignPublicIP = showPublicSubnets
+                    this.showSubnetReplacementAlert = initialAssignPublicIP != showPublicSubnets
                     if (this.inAdvanced){
-                        this.placements = placements.getFullList(this.assignPublicIP, currentPlacements)
+                        this.placements = placements.getFullList(showPublicSubnets, this.selectedPlacements)
                     }
                     else{
-                        this.placements = placements.getSimpleList(this.assignPublicIP, currentPlacements)
+                        this.placements = placements.getSimpleList(showPublicSubnets, this.selectedPlacements)
                     }
-
+                },
+                bandwidthChange: function(value) {
+                    this.currentBandwidthWeight = value;
+                    capacitySetting.currentBandwidthWeight = value;
+                },
+                onUseEbsCheckClick: function(useEbsCheck){
+                    this.useEbsCheck = useEbsCheck;
+                },
+                onUseEnaExpressClick: function(useEnaExpress){
+                    this.useEnaExpress = useEnaExpress;
+                },
+                onUseEbsCheckHelpClick: function(value) {
+                    this.showUseEbsCheckHelp = !this.showUseEbsCheckHelp
+                },
+                onUseEnaExpressHelpClick: function(value) {
+                    this.showUseEnaExpressHelp = !this.showUseEnaExpressHelp
                 },
                 updateAwsRole:function(value){
                     this.awsRole = value
@@ -848,12 +1063,20 @@
                     // It's really just update cluster info config without capacity
                     //Create the default capacity. The input here aligns to the Rodimus new cluster
                     var clusterInfo = {};
+                    clusterInfo['accountId'] = this.currentAccoundId;
+                    clusterInfo['capacity'] = this.capacity;
                     clusterInfo['provider'] = this.currentProvider;
                     clusterInfo['cellName'] = this.currentCell;
-                    clusterInfo['baseImageId'] = this.baseImageValue;
+                    clusterInfo['archName'] = this.currentArch;
+                    clusterInfo['bandwidthWeighting'] = this.currentBandwidthWeight;
+                    clusterInfo['useEbsCheck'] = this.useEbsCheck;
+                    clusterInfo['useEnaExpress'] = this.useEnaExpress;
                     clusterInfo['hostType'] = this.selectedHostTypeValue;
+                    clusterInfo['enableMultipleHostTypes'] = this.enableMultipleHostTypes;
                     clusterInfo['securityZone'] = this.selectedSecurityZoneValue;
+                    clusterInfo['useLaunchTemplate'] = this.useLaunchTemplate;
                     clusterInfo['placement'] = this.selectedPlacements.join(',');
+                    clusterInfo['statefulStatus'] = this.currentStatefulStatus;
                     clusterInfo['configs'] = this.allUserData.reduce(function(map, obj) {
                         map[obj.name] = obj.value;
                         return map
@@ -870,6 +1093,14 @@
                     }
                     if (!this.inAdvanced){
                         clusterInfo.configs['aws_role'] = this.awsRole
+                    }
+
+                    if (!this.pinImage) {
+                        clusterInfo['autoUpdateBaseImage'] = true;
+                        clusterInfo['baseImageName'] = this.imageNameValue;
+                    } else {
+                        clusterInfo['autoUpdateBaseImage'] = false;
+                        clusterInfo['baseImageId'] = this.baseImageValue;
                     }
 
                     if (this.imageNameValue.startsWith('cmp_base')){
@@ -894,7 +1125,17 @@
                     if (value) {
                         this.updateCapacity();
                     }
-                }
+                },
+                statefulHelpClick: function(value) {
+                    if (this.showStatefulHelp) {
+                        this.showStatefulHelp = false
+                    } else {
+                        capacitySetting.showStatefulHelp = true
+                    }
+                },
+                statefulStatusChange: function(value) {
+                    this.currentStatefulStatus = value
+                },
             },
             watch: {
                 placements: function(){
@@ -903,24 +1144,11 @@
                     Vue.nextTick(function(){
                         $(".chosen-select").trigger("chosen:updated")
                     })
+                },
+                selectedPlacements: function() {
+                    this.remainingCapacity = getRemainingCapacity(info.placements, this.selectedPlacements);
                 }
             }
-
-        });
-
-        var replaceProgressPanel = new Vue({
-             el: "#replaceProgressPanel",
-             data: {
-                 "show": currentCluster.state != 'NORMAL',
-                 "state":  currentCluster.state
-             }
-        });
-
-        var activeClusterReplaceGraph = new Vue({
-             el: "#activeClusterReplaceGraph",
-             data: {
-                 "show": currentCluster.state != 'NORMAL'
-             }
         });
 
         var sidebar = new Vue({
@@ -951,38 +1179,6 @@
                             }
                         });
                     },
-                    replaceCluster: function(){
-                        this.sendClusterActionRequest('enable_replacement')
-                    },
-                    cancelReplaceCluster:function(){
-                        this.sendClusterActionRequest('cancel_replacement')
-                    },
-                    pauseReplaceCluster:function(){
-                        this.sendClusterActionRequest('pause_replacement')
-                    },
-                    resumeReplaceCluster:function(){
-                        this.sendClusterActionRequest('resume_replacement')
-                    },
-                    clusterAction: function(confirmedAction){
-                        //Check if action is a confirm action
-                        if (confirmedAction.value){
-                            if (confirmedAction.action === "replace"){
-                                this.replaceCluster()
-                            }
-                            else if (confirmedAction.action === 'cancel'){
-                                this.cancelReplaceCluster()
-                            }
-                            else if (confirmedAction.action === 'resume'){
-                                this.resumeReplaceCluster()
-                            }
-                            else if (confirmedAction.action === 'pause'){
-                                this.pauseReplaceCluster()
-                            }
-                            else{
-                                globalNotificationBanner.error = "Unrecongized action "+confirmedAction.action
-                            }
-                        }
-                    },
                 buttonClick: function() {
                     capacitySetting.inAdvanced = !capacitySetting.inAdvanced
                     if (capacitySetting.inAdvanced) {
@@ -997,58 +1193,38 @@
         });
 
         $(document).ready(function() {
-                $(".chosen-select").chosen({
-                        "width": "100%"
-                    })
-                    .change(function() {
-                        capacitySetting.selectedPlacements = $('.chosen-select').val()
-                    });
-
-           if(showReplaceAlert) {
-                // include this tmpl, meaning a cluster replace is going-on, need to check its progress
-                // update every 1 min, and execute now
-                function setIntervalAndExecute(fn, t) {
-                    fn();
-                    return(setInterval(fn, t));
-                }
-                var replaceStartTime = new Date().getTime();
-                var replaceProgressInterval = setIntervalAndExecute(function() {
-                    if(new Date().getTime() - replaceStartTime > 3600000) {  // if more than 60 mins, clear it
-                        console.log('cleared time interval');
-                        clearInterval(replaceProgressInterval);
+            $('.single-select-search').chosen({
+                "width": "100%"
+            }).change(function() {
+                capacitySetting.selectedHostTypeValue = $('.single-select-search').val();
+                capacitySetting.backupHosttypes = "None";
+                capacitySetting.enableMultipleHostTypes = false;
+                capacitySetting.canChangeBandwidth = checkHostType(capacitySetting.hostTypes, capacitySetting.selectedHostTypeValue);
+                capacitySetting.currentBandwidthWeight = "default";
+                capacitySetting.bandwidthweights = info.bandwidthWeights.map(function(item) {
+                    return {
+                        value: item.name,
+                        text: item.name,
+                        isSelected: item.name === "default"
                     }
-                    $('#activeClusterReplaceId').load(
-                            '/env/{{ env.envName }}/{{ env.stageName }}/get_replacement_progress/'
-                    );
-                }, 60000);  // request every 1 min
+                });
+            });
 
-                $.get('/env/{{ env.envName }}/{{ env.stageName }}/get_replacement_details/', function(event_details) {
-                    var startTime = event_details['start_time'];
-                    console.log('startTime:', startTime);
-                    var graphStartTime = new Date().getTime();
-                    var graphProgressInterval = setIntervalAndExecute(function() {
-
-                        if(new Date().getTime() - graphStartTime > 3600000) {  // if more than 60 mins, clear it
-                            console.log('cleared time interval');
-                            clearInterval(graphProgressInterval);
-                        }
-
-                        $.get('/env/{{ env.envName }}/{{ env.stageName }}/replacement/scaling_activities/', function(response){
-                                    response = response.filter(function(v) {
-                                        var timestamp = v['scalingTime'];
-                                        return parseInt(timestamp) - parseInt(startTime) > 0;
-                                    });
-                                    var raw_data = normalizeGraphData(response);
-                                    accessibility(raw_data[0], raw_data[1][0], raw_data[1][1]);
-                            });
-                    }, 120000);  // request every 2 min
+            $(".chosen-select").chosen({
+                    "width": "100%"
+                })
+                .change(function() {
+                    capacitySetting.selectedPlacements = $('.chosen-select').val()
                 });
 
-           }
+           var selectedHostTypeObject = info.hostTypes.find(hostType => hostType.id === capacitySetting.selectedHostTypeValue);
+           var hostTypeRoadmapLink = "{{ host_type_roadmap_link }}"
 
+            if (selectedHostTypeObject.blessed_status === "DECOMMISSIONING" || selectedHostTypeObject.retired === true) {
+                globalNotificationBanner.error = "This cluster is currently using an unblessed Instance Type. Please refer to " + hostTypeRoadmapLink + " for the recommended Instance Type.";
+            }
         });
-    }
-    else{
+    } else {
         globalNotificationBanner.error = "Cannot find the cluster"
     }
 

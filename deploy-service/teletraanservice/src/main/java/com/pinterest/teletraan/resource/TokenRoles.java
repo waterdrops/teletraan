@@ -1,12 +1,12 @@
 /**
- * Copyright 2016 Pinterest, Inc.
+ * Copyright (c) 2016-2024 Pinterest, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *  
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *    
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,77 +15,89 @@
  */
 package com.pinterest.teletraan.resource;
 
-import com.pinterest.deployservice.bean.Resource;
-import com.pinterest.deployservice.bean.Role;
+import com.pinterest.deployservice.bean.CreatedTokenRolesResponse;
 import com.pinterest.deployservice.bean.TokenRolesBean;
 import com.pinterest.deployservice.common.CommonUtils;
 import com.pinterest.deployservice.dao.TokenRolesDAO;
 import com.pinterest.teletraan.TeletraanServiceContext;
-import com.pinterest.teletraan.security.Authorizer;
+import com.pinterest.teletraan.universal.security.bean.AuthZResource;
+import java.net.URI;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
+import javax.ws.rs.BadRequestException;
+import javax.ws.rs.core.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.ws.rs.core.*;
-import java.net.URI;
-import java.util.List;
-
 public abstract class TokenRoles {
     private static final Logger LOG = LoggerFactory.getLogger(TokenRoles.class);
-    final static public long VALIDATE_TIME = 10 * 365 * 24 * 60 * 60 * 1000L;
+    public static final long VALIDATE_TIME = 180;
     private final TokenRolesDAO tokenRolesDAO;
-    private final Authorizer authorizer;
 
-    @Context
-    UriInfo uriInfo;
-
-    public TokenRoles(TeletraanServiceContext context) {
+    protected TokenRoles(TeletraanServiceContext context) {
         tokenRolesDAO = context.getTokenRolesDAO();
-        authorizer = context.getAuthorizer();
     }
 
-    public List<TokenRolesBean> getByResource(SecurityContext sc, String resourceId,
-        Resource.Type resourceType) throws Exception {
-        authorizer.authorize(sc, new Resource(resourceId, resourceType), Role.ADMIN);
+    public List<TokenRolesBean> getByResource(String resourceId, AuthZResource.Type resourceType)
+            throws Exception {
         return tokenRolesDAO.getByResource(resourceId, resourceType);
     }
 
-    public TokenRolesBean getByNameAndResource(SecurityContext sc, String scriptName,
-        String resourceId, Resource.Type resourceType) throws Exception {
-        authorizer.authorize(sc, new Resource(resourceId, resourceType), Role.ADMIN);
+    public TokenRolesBean getByNameAndResource(
+            String scriptName, String resourceId, AuthZResource.Type resourceType)
+            throws Exception {
         return tokenRolesDAO.getByNameAndResource(scriptName, resourceId, resourceType);
     }
 
-    public void update(SecurityContext sc, TokenRolesBean bean, String scriptName,
-        String resourceId, Resource.Type resourceType) throws Exception {
-        authorizer.authorize(sc, new Resource(resourceId, resourceType), Role.ADMIN);
-        tokenRolesDAO.update(bean, scriptName, resourceId, resourceType);
-        LOG.info("Successfully updated script {} permission for resource {} with {}",
-            scriptName, resourceId, bean);
+    public void update(
+            TokenRolesBean bean,
+            String scriptName,
+            String resourceId,
+            AuthZResource.Type resourceType)
+            throws Exception {
+        if (bean == null || bean.getRole() == null) {
+            throw new BadRequestException("A script token role is required");
+        }
+        // The URL identifies the authorized token. Never allow body fields to move it to a
+        // different resource (in particular SYSTEM), replace its bearer secret, or extend expiry.
+        tokenRolesDAO.updateRole(scriptName, resourceId, resourceType, bean.getRole());
+        LOG.info(
+                "Successfully updated script {} permission for resource {} to role {}",
+                scriptName,
+                resourceId,
+                bean.getRole());
     }
 
-    public Response create(SecurityContext sc, TokenRolesBean bean, String resourceId,
-        Resource.Type resourceType) throws Exception {
-        authorizer.authorize(sc, new Resource(resourceId, resourceType), Role.ADMIN);
+    public Response create(
+            UriInfo uriInfo,
+            TokenRolesBean bean,
+            String resourceId,
+            AuthZResource.Type resourceType)
+            throws Exception {
         String token = CommonUtils.getBase64UUID();
         bean.setToken(token);
         bean.setResource_id(resourceId);
         bean.setResource_type(resourceType);
-        bean.setExpire_date(System.currentTimeMillis() + VALIDATE_TIME);
+        bean.setExpire_date(Instant.now().plus(VALIDATE_TIME, ChronoUnit.DAYS).toEpochMilli());
         tokenRolesDAO.insert(bean);
-        bean.setToken("xxxxxxxx");
-        LOG.info("Successfully created new script permission for resource {} with {}",
-            resourceId, bean);
-        TokenRolesBean newBean = tokenRolesDAO.getByToken(token);
+        LOG.info(
+                "Successfully created new script permission for resource {} with {}",
+                resourceId,
+                bean);
         UriBuilder ub = uriInfo.getAbsolutePathBuilder();
-        URI roleUri = ub.path(newBean.getScript_name()).build();
-        return Response.created(roleUri).entity(newBean).build();
+        URI roleUri = ub.path(bean.getScript_name()).build();
+        // BUG-285640: the raw token is disclosed exactly once, here, in the 201 Created response
+        // to the WRITE-role caller. GET endpoints redact the token field on TokenRolesBean.
+        return Response.created(roleUri).entity(new CreatedTokenRolesResponse(bean, token)).build();
     }
 
-    public void delete(SecurityContext sc, String scriptName, String resourceId,
-        Resource.Type resourceType) throws Exception {
-        authorizer.authorize(sc, new Resource(resourceId, resourceType), Role.ADMIN);
+    public void delete(String scriptName, String resourceId, AuthZResource.Type resourceType)
+            throws Exception {
         tokenRolesDAO.delete(scriptName, resourceId, resourceType);
-        LOG.info("Successfully deleted script {} permission for resource {}",
-            scriptName, resourceId);
+        LOG.info(
+                "Successfully deleted script {} permission for resource {}",
+                scriptName,
+                resourceId);
     }
 }

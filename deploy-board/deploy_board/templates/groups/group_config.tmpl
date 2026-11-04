@@ -8,7 +8,7 @@
                     <label for="chatroom" class="deployToolTip control-label col-xs-2"
                         data-toggle="tooltip"
                         title="Slack channel where to send autoscaling notifications, e.g. room1,room2">
-                        Slack Channel
+                        Slack Channels
                     </label>
                     <div class="col-xs-4">
                         <input class="form-control" name="chatroom" required="false"
@@ -17,8 +17,8 @@
 
                     <label for="chatRecipients" class="deployToolTip control-label col-xs-2"
                         data-toggle="tooltip"
-                        title="Chat user handles where to send autoscaling notifications, e.g. user1,user2">
-                        Channel Recipients
+                        title="Slack users to send autoscaling notifications, e.g. user1,user2">
+                        Slack Users
                     </label>
                     <div class="col-xs-4">
                         <input class="form-control" name="watch_recipients" required="false"
@@ -38,7 +38,7 @@
 
                     <label for="pagerRecipients" class="deployToolTip control-label col-xs-2"
                         data-toggle="tooltip"
-                        title="Pager email addressses to send autoscaling and health check alert, e.g. user1@email.com,user2@email.com">
+                        title="Pager email addressses to send health check alert, e.g. user1@email.com,user2@email.com">
                         Pager Recipients
                     </label>
                     <div class="col-xs-4">
@@ -71,7 +71,7 @@
 
                     <label for="healthcheck_period" class="deployToolTip control-label col-xs-2"
                         data-toggle="tooltip"
-                        title="Schedule a new heat check every x minutes">
+                        title="Schedule a new health check every x minutes">
                         Health Check Interval
                     </label>
                     <div class="col-xs-4">
@@ -200,6 +200,24 @@
                             </span>
                         </div>
                     </div>
+                    <label for="runbook_link" class="deployToolTip control-label col-xs-2"
+                        data-toggle="tooltip"
+                        title="Enter the link to the runbook need for any any healthcheck failure alerts">
+                        Runbook Link
+                    </label>
+                    <div class="col-xs-4">
+                        <div class="input-group">
+                            <input class="form-control" id="runbook_link" name="runbook_link" required="false"
+                                type="text" value="{{ config.runbookLink |default_if_none:'' }}"/>
+                            <span class="input-group-btn">
+                                <button id="runbooklinkExpressionId" class="deployToolTip btn btn-default"
+                                        type="button" data-toggle="tooltip"
+                                        title="click for more information on the runbook link">
+                                    <span class="glyphicon glyphicon-question-sign"></span>
+                                </button>
+                            </span>
+                        </div>
+                    </div>
                 </div>
                 <div class="form-group collapse" id="loadbalancersExpressionDetailsId">
                         <div class="col-xs-2">
@@ -207,6 +225,13 @@
                         <div class="col-xs-10">
                         Please enter the load balancers you would like to attach to this group seperated by commas.
                         </div>
+                </div>
+                <div class="form-group collapse" id="runbooklinkExpressionDetailsId">
+                    <div class="col-xs-8">
+                    </div>
+                    <div class="col-xs-4">
+                    Please enter the runbook link that you would like to attach to health check failure messages.
+                    </div>
                 </div>
                 <div class="form-group">
                     <label for="target_groups" class="deployToolTip control-label col-xs-2"
@@ -338,6 +363,9 @@
         });
         $("#targetgroupsExpressionId").click(function() {
             $("#targetgroupsExpressionDetailsId").collapse('toggle');
+        });
+        $("#runbooklinkExpressionId").click(function() {
+            $("#runbooklinkExpressionDetailsId").collapse('toggle');
         });
     });
 </script>

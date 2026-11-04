@@ -13,12 +13,18 @@
 # limitations under the License.
 
 # -*- coding: utf-8 -*-
-"""Helper class to connect Teletraan service
-"""
+"""Helper class to connect Teletraan service"""
+
 import logging
-from decorators import singleton
-from deploy_board.settings import TELETRAAN_SERVICE_URL, TELETRAAN_SERVICE_VERSION
-from base_client import BaseClient
+from .decorators import singleton
+from deploy_board.settings import (
+    TELETRAAN_SERVICE_URL,
+    TELETRAAN_SERVICE_VERSION,
+    TELETRAAN_SERVICE_PROXY_HTTP,
+    TELETRAAN_SERVICE_PROXY_HTTPS,
+    TELETRAAN_SERVICE_USE_BEARER,
+)
+from .base_client import BaseClient
 
 
 log = logging.getLogger(__name__)
@@ -27,4 +33,11 @@ log = logging.getLogger(__name__)
 @singleton
 class DeployClient(BaseClient):
     def __init__(self):
-        BaseClient.__init__(self, url_prefix=TELETRAAN_SERVICE_URL, version=TELETRAAN_SERVICE_VERSION)
+        BaseClient.__init__(
+            self,
+            url_prefix=TELETRAAN_SERVICE_URL,
+            version=TELETRAAN_SERVICE_VERSION,
+            proxy_http=TELETRAAN_SERVICE_PROXY_HTTP,
+            proxy_https=TELETRAAN_SERVICE_PROXY_HTTPS,
+            bearer=TELETRAAN_SERVICE_USE_BEARER,
+        )

@@ -1,12 +1,12 @@
 /**
- * Copyright 2016 Pinterest, Inc.
+ * Copyright (c) 2016-2024 Pinterest, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *  
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *    
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,22 +16,12 @@
 package com.pinterest.deployservice.bean;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import org.apache.commons.lang.builder.ReflectionToStringBuilder;
-import org.hibernate.validator.constraints.NotEmpty;
-
+import com.pinterest.teletraan.universal.security.bean.AuthZResource;
+import javax.annotation.Nonnull;
+import javax.validation.constraints.NotEmpty;
 import javax.validation.constraints.NotNull;
+import org.apache.commons.lang3.builder.ReflectionToStringBuilder;
 
-/**
- * create table tokens_and_roles (
- * script_name   VARCHAR(64)   NOT NULL,
- * resource_id   VARCHAR(64)   NOT NULL,
- * resource_type VARCHAR(16)   NOT NULL,
- * token         VARCHAR(22)   NOT NULL,
- * role          VARCHAR(22)   NOT NULL,
- * expire_date BIGINT          NOT NULL,
- * PRIMARY KEY (resource_id, resource_type, script_name)
- * );
- */
 public class TokenRolesBean implements Updatable {
 
     @NotEmpty
@@ -42,14 +32,24 @@ public class TokenRolesBean implements Updatable {
     private String resource_id;
 
     @JsonProperty("type")
-    private Resource.Type resource_type;
+    private AuthZResource.Type resource_type;
 
-    @JsonProperty("token")
+    /**
+     * The bearer secret used to authenticate {@code Authorization: token <value>} requests.
+     *
+     * <p>This field is intentionally write-only as far as Jackson is concerned: it may be
+     * deserialized from inbound JSON, but token creation generates its own secret and role updates
+     * ignore this field. It is never serialized into HTTP responses. The raw token is disclosed
+     * exactly once, by {@link com.pinterest.deployservice.bean.CreatedTokenRolesResponse}, in the
+     * 201 Created response from the token-creation endpoint. GET endpoints redact it. See
+     * BUG-285640.
+     */
+    @JsonProperty(value = "token", access = JsonProperty.Access.WRITE_ONLY)
     private String token;
 
     @NotNull
     @JsonProperty("role")
-    private Role role;
+    private TeletraanPrincipalRole role;
 
     @JsonProperty("expireDate")
     private Long expire_date;
@@ -66,31 +66,31 @@ public class TokenRolesBean implements Updatable {
         return script_name;
     }
 
-    public void setScript_name(String script_name) {
-        this.script_name = script_name;
+    public void setScript_name(String scriptName) {
+        this.script_name = scriptName;
     }
 
-    public String getResource_id() {
+    public @Nonnull String getResource_id() {
         return resource_id;
     }
 
-    public void setResource_id(String resource_id) {
-        this.resource_id = resource_id;
+    public void setResource_id(String resourceId) {
+        this.resource_id = resourceId;
     }
 
-    public Resource.Type getResource_type() {
+    public AuthZResource.Type getResource_type() {
         return resource_type;
     }
 
-    public void setResource_type(Resource.Type resource_type) {
-        this.resource_type = resource_type;
+    public void setResource_type(AuthZResource.Type resourceType) {
+        this.resource_type = resourceType;
     }
 
-    public Role getRole() {
+    public TeletraanPrincipalRole getRole() {
         return role;
     }
 
-    public void setRole(Role role) {
+    public void setRole(TeletraanPrincipalRole role) {
         this.role = role;
     }
 
@@ -98,8 +98,8 @@ public class TokenRolesBean implements Updatable {
         return expire_date;
     }
 
-    public void setExpire_date(Long expire_date) {
-        this.expire_date = expire_date;
+    public void setExpire_date(Long expireDate) {
+        this.expire_date = expireDate;
     }
 
     @Override
@@ -116,6 +116,6 @@ public class TokenRolesBean implements Updatable {
 
     @Override
     public String toString() {
-        return ReflectionToStringBuilder.toString(this);
+        return ReflectionToStringBuilder.toStringExclude(this, "token");
     }
 }

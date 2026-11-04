@@ -1,12 +1,12 @@
-/*
- * Copyright 2016 Pinterest, Inc.
+/**
+ * Copyright (c) 2016-2024 Pinterest, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *  
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *    
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,71 +15,67 @@
  */
 package com.pinterest.teletraan.resource;
 
-import com.codahale.metrics.annotation.ExceptionMetered;
-import com.codahale.metrics.annotation.Timed;
-
 import com.pinterest.deployservice.bean.*;
 import com.pinterest.deployservice.common.Constants;
+import com.pinterest.deployservice.common.InvalidBuildException;
+import com.pinterest.deployservice.dao.AgentDAO;
 import com.pinterest.deployservice.dao.DeployDAO;
 import com.pinterest.deployservice.dao.EnvironDAO;
-import com.pinterest.deployservice.dao.BuildDAO;
-import com.pinterest.deployservice.dao.AgentDAO;
 import com.pinterest.deployservice.handler.ConfigHistoryHandler;
 import com.pinterest.deployservice.handler.DeployHandler;
 import com.pinterest.deployservice.handler.EnvironHandler;
-import com.pinterest.deployservice.allowlists.Allowlist;
 import com.pinterest.teletraan.TeletraanServiceContext;
-import com.pinterest.teletraan.exception.TeletaanInternalException;
-import com.pinterest.teletraan.security.Authorizer;
-
+import com.pinterest.teletraan.universal.security.ResourceAuthZInfo;
+import com.pinterest.teletraan.universal.security.bean.AuthZResource;
+import io.micrometer.core.annotation.Counted;
+import io.micrometer.core.annotation.Timed;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import io.swagger.annotations.ApiParam;
-import org.apache.commons.lang3.StringUtils;
-import org.hibernate.validator.constraints.NotEmpty;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import javax.ws.rs.*;
-import javax.ws.rs.core.*;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import javax.annotation.security.RolesAllowed;
+import javax.validation.constraints.NotEmpty;
+import javax.validation.constraints.NotNull;
+import javax.ws.rs.*;
+import javax.ws.rs.core.*;
+import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+@RolesAllowed(TeletraanPrincipalRole.Names.READ)
 @Path("/v1/envs/{envName : [a-zA-Z0-9\\-_]+}/{stageName : [a-zA-Z0-9\\-_]+}/deploys")
 @Api(tags = "Deploys")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public class EnvDeploys {
     public enum ActionType {
-        PROMOTE, RESTART, ROLLBACK, PAUSE, RESUME
+        PROMOTE,
+        RESTART,
+        ROLLBACK,
+        PAUSE,
+        RESUME
     }
 
     public enum HostActions {
-        PAUSED_BY_USER, RESET, NORMAL
+        PAUSED_BY_USER,
+        RESET,
+        NORMAL
     }
 
     private static final Logger LOG = LoggerFactory.getLogger(EnvDeploys.class);
     private EnvironDAO environDAO;
-    private BuildDAO buildDAO;
-    private Allowlist buildAllowlist;
     private DeployDAO deployDAO;
-    private Authorizer authorizer;
     private AgentDAO agentDAO;
     private EnvironHandler environHandler;
     private DeployHandler deployHandler;
     private ConfigHistoryHandler configHistoryHandler;
 
-    @Context
-    UriInfo uriInfo;
-
-    public EnvDeploys(TeletraanServiceContext context) throws Exception {
+    public EnvDeploys(@Context TeletraanServiceContext context) throws Exception {
         environDAO = context.getEnvironDAO();
-        buildDAO = context.getBuildDAO();
-        buildAllowlist = context.getBuildAllowlist();
         deployDAO = context.getDeployDAO();
-        authorizer = context.getAuthorizer();
         agentDAO = context.getAgentDAO();
         environHandler = new EnvironHandler(context);
         deployHandler = new DeployHandler(context);
@@ -88,37 +84,57 @@ public class EnvDeploys {
 
     @GET
     @Timed
-    @ExceptionMetered
+    @Counted
     @Path("/current")
     @ApiOperation(
             value = "Get deploy info by environment",
             notes = "Returns a deploy info object given an environment name and stage name",
             response = DeployBean.class)
     public DeployBean get(
-            @ApiParam(value = "Environment name", required = true)@PathParam("envName") String envName,
-            @ApiParam(value = "Stage name", required = true)@PathParam("stageName") String stageName) throws Exception {
+            @ApiParam(value = "Environment name", required = true) @PathParam("envName")
+                    String envName,
+            @ApiParam(value = "Stage name", required = true) @PathParam("stageName")
+                    String stageName)
+            throws Exception {
         EnvironBean envBean = Utils.getEnvStage(environDAO, envName, stageName);
+        if (StringUtils.isBlank(envBean.getDeploy_id())) {
+            throw new NotFoundException(
+                    String.format("%s/%s doesn't have any deploys", envName, stageName));
+        }
         return deployHandler.getDeploySafely(envBean.getDeploy_id());
     }
 
     @POST
     @Timed
-    @ExceptionMetered
+    @Counted
     @Path("/current/actions")
     @ApiOperation(
             value = "Take deploy action",
             notes = "Take an action on a deploy such as RESTART or PAUSE",
             response = Response.class)
+    @RolesAllowed(TeletraanPrincipalRole.Names.EXECUTE)
+    @ResourceAuthZInfo(
+            type = AuthZResource.Type.ENV_STAGE,
+            idLocation = ResourceAuthZInfo.Location.PATH)
     public Response action(
             @Context SecurityContext sc,
-            @ApiParam(value = "Environment name", required = true)@PathParam("envName") String envName,
-            @ApiParam(value = "Stage name", required = true)@PathParam("stageName") String stageName,
-            @ApiParam(value = "ActionType enum selection", required = true)@NotEmpty @QueryParam("actionType") ActionType actionType,
-            @ApiParam(value = "Lower bound deploy id", required = true)@QueryParam("fromDeployId") String fromDeployId,
-            @ApiParam(value = "Upper bound deploy id", required = true)@QueryParam("toDeployId") String toDeployId,
-            @ApiParam(value = "Description", required = true)@QueryParam("description") String description) throws Exception {
+            @Context UriInfo uriInfo,
+            @ApiParam(value = "Environment name", required = true) @PathParam("envName")
+                    String envName,
+            @ApiParam(value = "Stage name", required = true) @PathParam("stageName")
+                    String stageName,
+            @ApiParam(value = "ActionType enum selection", required = true)
+                    @NotNull
+                    @QueryParam("actionType")
+                    ActionType actionType,
+            @ApiParam(value = "Lower bound deploy id", required = true) @QueryParam("fromDeployId")
+                    String fromDeployId,
+            @ApiParam(value = "Upper bound deploy id", required = true) @QueryParam("toDeployId")
+                    String toDeployId,
+            @ApiParam(value = "Description", required = true) @QueryParam("description")
+                    String description)
+            throws Exception {
         EnvironBean envBean = Utils.getEnvStage(environDAO, envName, stageName);
-        authorizer.authorize(sc, new Resource(envBean.getEnv_name(), Resource.Type.ENV), Role.OPERATOR);
         String operator = sc.getUserPrincipal().getName();
         String newDeployId;
         switch (actionType) {
@@ -138,12 +154,18 @@ public class EnvDeploys {
                 newDeployId = deployHandler.promote(envBean, fromDeployId, description, operator);
                 break;
             default:
-                throw new TeletaanInternalException(Response.Status.BAD_REQUEST, "No action found.");
+                throw new WebApplicationException("No action found.", Response.Status.BAD_REQUEST);
         }
 
-        configHistoryHandler.updateConfigHistory(envBean.getEnv_id(), Constants.TYPE_ENV_ACTION, actionType.toString(), operator);
-        LOG.info("Successfully create deploy {} for env{}/{} as {} by {}.",
-            newDeployId, envName, stageName, actionType, operator);
+        configHistoryHandler.updateConfigHistory(
+                envBean.getEnv_id(), Constants.TYPE_ENV_ACTION, actionType.toString(), operator);
+        LOG.info(
+                "Successfully create deploy {} for env{}/{} as {} by {}.",
+                newDeployId,
+                envName,
+                stageName,
+                actionType,
+                operator);
         UriBuilder ub = uriInfo.getAbsolutePathBuilder();
         URI deployUri = ub.path("current").build();
         DeployBean result = deployDAO.getById(newDeployId);
@@ -152,91 +174,104 @@ public class EnvDeploys {
 
     @PUT
     @Timed
-    @ExceptionMetered
+    @Counted
     @Path("/hostactions")
     @ApiOperation(
-        value = "Take a deploy action",
-        notes = "Take an action on a deploy using host information",
-        response = Response.class)
+            value = "Take a deploy action",
+            notes = "Take an action on a deploy using host information",
+            response = Response.class)
+    @RolesAllowed(TeletraanPrincipalRole.Names.EXECUTE)
+    @ResourceAuthZInfo(
+            type = AuthZResource.Type.ENV_STAGE,
+            idLocation = ResourceAuthZInfo.Location.PATH)
     public void update(
             @Context SecurityContext sc,
-            @ApiParam(value = "Environment name", required = true)@PathParam("envName") String envName, 
-            @ApiParam(value = "Stage name", required = true)@PathParam("stageName") String stageName,
-            @ApiParam(value = "Agent object to update with", required = true)@NotEmpty @QueryParam("actionType") HostActions actionType,
-            @NotEmpty List<String> hostIds) throws Exception {
+            @ApiParam(value = "Environment name", required = true) @PathParam("envName")
+                    String envName,
+            @ApiParam(value = "Stage name", required = true) @PathParam("stageName")
+                    String stageName,
+            @ApiParam(value = "Agent object to update with", required = true)
+                    @NotNull
+                    @QueryParam("actionType")
+                    HostActions actionType,
+            @NotNull List<String> hostIds)
+            throws Exception {
         EnvironBean envBean = Utils.getEnvStage(environDAO, envName, stageName);
-        authorizer.authorize(sc, new Resource(envBean.getEnv_name(), Resource.Type.ENV), Role.OPERATOR);
         AgentBean agentBean = new AgentBean();
         switch (actionType) {
             case PAUSED_BY_USER:
                 agentBean.setState(AgentState.PAUSED_BY_USER);
                 agentBean.setLast_update(System.currentTimeMillis());
                 agentDAO.updateMultiple(hostIds, envBean.getEnv_id(), agentBean);
-                LOG.info("Succesfully paused hosts in environment {} and stage {}", envName, stageName);
+                LOG.info(
+                        "Succesfully paused hosts in environment {} and stage {}",
+                        envName,
+                        stageName);
                 break;
-            case RESET: 
+            case RESET:
                 agentBean.setState(AgentState.RESET);
                 agentBean.setLast_update(System.currentTimeMillis());
                 agentDAO.updateMultiple(hostIds, envBean.getEnv_id(), agentBean);
-                LOG.info("Succesfully reset hosts in environment {} and stage {}", envName, stageName);
+                LOG.info(
+                        "Succesfully reset hosts in environment {} and stage {}",
+                        envName,
+                        stageName);
                 break;
             case NORMAL:
                 agentBean.setState(AgentState.NORMAL);
                 agentBean.setLast_update(System.currentTimeMillis());
                 agentDAO.updateMultiple(hostIds, envBean.getEnv_id(), agentBean);
-                LOG.info("Succesfully resumed hosts in environment {} and stage {}", envName, stageName);
+                LOG.info(
+                        "Succesfully resumed hosts in environment {} and stage {}",
+                        envName,
+                        stageName);
                 break;
             default:
-                throw new TeletaanInternalException(Response.Status.BAD_REQUEST, "No action found.");
+                throw new WebApplicationException("No action found.", Response.Status.BAD_REQUEST);
         }
     }
 
     @POST
     @Timed
-    @ExceptionMetered
+    @Counted
     @ApiOperation(
             value = "Create a deploy",
-            notes = "Creates a deploy given an environment name, stage name, build id and description",
+            notes =
+                    "Creates a deploy given an environment name, stage name, build id and description",
             response = Response.class)
+    @RolesAllowed(TeletraanPrincipalRole.Names.EXECUTE)
+    @ResourceAuthZInfo(
+            type = AuthZResource.Type.ENV_STAGE,
+            idLocation = ResourceAuthZInfo.Location.PATH)
     public Response create(
             @Context SecurityContext sc,
-            @ApiParam(value = "Environment name", required = true)@PathParam("envName") String envName,
-            @ApiParam(value = "Stage name", required = true)@PathParam("stageName") String stageName,
-            @ApiParam(value = "Build id", required = true)@NotEmpty @QueryParam("buildId") String buildId,
-            @ApiParam(value = "Description", required = true)@QueryParam("description") String description) throws Exception {
+            @Context UriInfo uriInfo,
+            @ApiParam(value = "Environment name", required = true) @PathParam("envName")
+                    String envName,
+            @ApiParam(value = "Stage name", required = true) @PathParam("stageName")
+                    String stageName,
+            @ApiParam(value = "Build id", required = true) @NotEmpty @QueryParam("buildId")
+                    String buildId,
+            @ApiParam(value = "Description", required = true) @QueryParam("description")
+                    String description,
+            @ApiParam(value = "Delivery type", required = false) @QueryParam("deliveryType")
+                    String deliveryType)
+            throws Exception {
         EnvironBean envBean = Utils.getEnvStage(environDAO, envName, stageName);
-        authorizer.authorize(sc, new Resource(envBean.getEnv_name(), Resource.Type.ENV), Role.OPERATOR);
         String operator = sc.getUserPrincipal().getName();
 
-        if(StringUtils.isEmpty(buildId)) {
-            throw new TeletaanInternalException(Response.Status.BAD_REQUEST, "Build id can not be empty.");
+        String deployId;
+        try {
+            deployId = deployHandler.deploy(envBean, buildId, description, deliveryType, operator);
+            LOG.info(
+                    "Successfully create deploy {} for env {}/{} by {}.",
+                    deployId,
+                    envName,
+                    stageName,
+                    operator);
+        } catch (InvalidBuildException e) {
+            throw new WebApplicationException(e.getMessage(), Response.Status.BAD_REQUEST);
         }
-        BuildBean buildBean = buildDAO.getById(buildId);
-        
-        // check build name must match stage config
-        if(!buildBean.getBuild_name().equals(envBean.getBuild_name())) {
-            throw new TeletaanInternalException(Response.Status.BAD_REQUEST, 
-                String.format("Build name (%s) does not match stage config (%s).", 
-                    buildBean.getBuild_name(), envBean.getBuild_name()));
-        }
-        // only allow a non-private deploy if the build is from a trusted artifact url
-        if(envBean.getEnsure_trusted_build() && !buildBean.getScm_branch().equals("private") &&
-            buildAllowlist != null && !buildAllowlist.trusted(buildBean.getArtifact_url())) {
-            throw new TeletaanInternalException(Response.Status.BAD_REQUEST,
-                String.format("Non-private build url points to an untrusted location (%s). Please Contact #teletraan to ensure the build artifact is published to a trusted url",
-                    buildBean.getArtifact_url()));
-        }
-        // if the stage is not allowed (allow_private_build)
-        if(! envBean.getAllow_private_build()) { 
-            // only allow deploy if it is not private build
-            if (buildBean.getScm_branch().equals("private")) {
-                throw new TeletaanInternalException(Response.Status.BAD_REQUEST, 
-                    "This stage does not allow deploying a private build. Please Contact #teletraan to allow your stage for deploying private build");
-            }
-        }
-
-        String deployId = deployHandler.deploy(envBean, buildId, description, operator);
-        LOG.info("Successfully create deploy {} for env {}/{} by {}.", deployId, envName, stageName, operator);
 
         UriBuilder ub = uriInfo.getAbsolutePathBuilder();
         URI deployUri = ub.path("current").build();
@@ -244,19 +279,24 @@ public class EnvDeploys {
         return Response.created(deployUri).entity(deployBean).build();
     }
 
-    // Even though this is PUT, but it really just update progress, no check is needed
+    // Even though this is PUT, but it really just update progress, no check is
+    // needed
     @PUT
     @Timed
-    @ExceptionMetered
+    @Counted
     @Path("/current/progress")
     @ApiOperation(
             value = "Update deploy progress",
-            notes = "Updates a deploy's progress given an environment name and stage name and returns a deploy " +
-                    "progress object",
+            notes =
+                    "Updates a deploy's progress given an environment name and stage name and returns a deploy "
+                            + "progress object",
             response = DeployProgressBean.class)
     public DeployProgressBean updateProgress(
-            @ApiParam(value = "Environment name", required = true)@PathParam("envName") String envName,
-            @ApiParam(value = "Stage name", required = true)@PathParam("stageName") String stageName) throws Exception {
+            @ApiParam(value = "Environment name", required = true) @PathParam("envName")
+                    String envName,
+            @ApiParam(value = "Stage name", required = true) @PathParam("stageName")
+                    String stageName)
+            throws Exception {
         EnvironBean envBean = Utils.getEnvStage(environDAO, envName, stageName);
         if (envBean.getDeploy_id() == null) {
             DeployProgressBean emptyProgress = new DeployProgressBean();
@@ -273,10 +313,13 @@ public class EnvDeploys {
     @ApiOperation(
             value = "Get missing hosts for stage",
             notes = "Returns a list of missing hosts given an environment and stage",
-            response = String.class, responseContainer = "List")
+            response = String.class,
+            responseContainer = "List")
     public List<String> getMissingHosts(
-            @ApiParam(value = "Environment name", required = true)@PathParam("envName") String envName,
-            @ApiParam(value = "Stage name", required = true)@PathParam("stageName") String stageName)
+            @ApiParam(value = "Environment name", required = true) @PathParam("envName")
+                    String envName,
+            @ApiParam(value = "Stage name", required = true) @PathParam("stageName")
+                    String stageName)
             throws Exception {
         EnvironBean envBean = Utils.getEnvStage(environDAO, envName, stageName);
         return new ArrayList<>(environDAO.getMissingHosts(envBean.getEnv_id()));

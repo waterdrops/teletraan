@@ -12,6 +12,7 @@
             <th>Success</th>
             <th>Build</th>
             <th>Operator</th>
+            <th>Account</th>
             <th>Details</th>
         </tr>
         {% for deploy_summary in deploy_summaries %}
@@ -63,6 +64,19 @@
                 {% endif %}
             </td>
             <td>{{ deploy_summary.deploy.operator }}</td>
+            <td>
+                {% for account in deploy_summary.deploy_accounts %}
+                    {% if account.legacy_name %}
+                    <div class="deployToolTip btn btn-xs btn-default host-btn">
+                    {{ account.legacy_name }}
+                    </div>
+                    {% else %}
+                    <a class="deployToolTip btn btn-xs btn-default host-btn" href="/clouds/accounts/{{ account.cloudProvider }}/{{ account.cell }}/{{ account.id }}">
+                        {{ account.data.ownerId }} / {{ account.name }}
+                    </a>
+                    {% endif %}
+                {% endfor %}
+            </td>
             <td><a href="/deploy/{{ deploy_summary.deploy.id }}">Details</a></td>
         </tr>
         <tr id="deployAction{{forloop.counter}}" class="collapse out deployActionPanel">
@@ -127,7 +141,7 @@
 
     jQuery(function(){
         var maxCheckedAllowed = 2;
-        var checkboxes = $('input[type="checkbox"]');
+        var checkboxes = $("#deployHistoryTableId").find('input[type="checkbox"]');
             checkboxes.change(function(){
                 var numChecked = checkboxes.filter(':checked').length;
                 checkboxes.filter(':not(:checked)').prop('disabled', numChecked >= maxCheckedAllowed);

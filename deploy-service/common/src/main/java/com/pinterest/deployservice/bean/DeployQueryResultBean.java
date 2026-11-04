@@ -1,12 +1,12 @@
 /**
- * Copyright 2016 Pinterest, Inc.
+ * Copyright (c) 2016-2024 Pinterest, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *  
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *    
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,11 +15,10 @@
  */
 package com.pinterest.deployservice.bean;
 
-import org.apache.commons.lang.builder.ReflectionToStringBuilder;
-
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.apache.commons.lang3.builder.ReflectionToStringBuilder;
 
 public class DeployQueryResultBean {
     private List<DeployBean> deploys;
@@ -27,11 +26,15 @@ public class DeployQueryResultBean {
     private Long total;
     private Boolean truncated;
 
-    public DeployQueryResultBean(List<DeployBean> deploys, Long total, Boolean truncated)  {
-        this(deploys,total,new HashMap<String,TagBean>(), truncated);
+    public DeployQueryResultBean(List<DeployBean> deploys, Long total, Boolean truncated) {
+        this(deploys, total, new HashMap<String, TagBean>(), truncated);
     }
 
-    public DeployQueryResultBean(List<DeployBean> deploys, Long total, Map<String, TagBean> deployTags, Boolean truncated) {
+    public DeployQueryResultBean(
+            List<DeployBean> deploys,
+            Long total,
+            Map<String, TagBean> deployTags,
+            Boolean truncated) {
         this.deploys = deploys;
         this.total = total;
         this.deployTags = deployTags;
@@ -50,8 +53,9 @@ public class DeployQueryResultBean {
         return total;
     }
 
-    public Map<String, TagBean> getDeployTags() { return deployTags; }
-
+    public Map<String, TagBean> getDeployTags() {
+        return deployTags;
+    }
 
     @Override
     public String toString() {

@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Pinterest, Inc.
+ * Copyright (c) 2016-2024 Pinterest, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,43 +17,46 @@ package com.pinterest.teletraan.resource;
 
 import com.google.common.base.Optional;
 import com.pinterest.deployservice.bean.EnvironBean;
-import com.pinterest.deployservice.bean.Resource;
-import com.pinterest.deployservice.bean.Role;
 import com.pinterest.deployservice.bean.TagBean;
 import com.pinterest.deployservice.bean.TagTargetType;
 import com.pinterest.deployservice.bean.TagValue;
+import com.pinterest.deployservice.bean.TeletraanPrincipalRole;
 import com.pinterest.deployservice.bean.UserRolesBean;
+import com.pinterest.deployservice.common.EntitlementEnforcementProvider;
 import com.pinterest.deployservice.dao.EnvironDAO;
 import com.pinterest.deployservice.dao.UserRolesDAO;
 import com.pinterest.deployservice.handler.EnvTagHandler;
 import com.pinterest.deployservice.handler.EnvironHandler;
 import com.pinterest.deployservice.handler.TagHandler;
 import com.pinterest.teletraan.TeletraanServiceContext;
-import com.pinterest.teletraan.exception.TeletaanInternalException;
-import com.pinterest.teletraan.security.Authorizer;
-import com.pinterest.teletraan.security.OpenAuthorizer;
+import com.pinterest.teletraan.universal.security.ResourceAuthZInfo;
+import com.pinterest.teletraan.universal.security.ResourceAuthZInfo.Location;
+import com.pinterest.teletraan.universal.security.bean.AuthZResource;
+import com.pinterest.teletraan.universal.security.bean.UserPrincipal;
 import io.swagger.annotations.*;
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.lang3.StringUtils;
-import org.hibernate.validator.constraints.NotEmpty;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import javax.validation.Valid;
-import javax.ws.rs.*;
-import javax.ws.rs.core.*;
 import java.net.URI;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.stream.Collectors;
+import javax.annotation.security.RolesAllowed;
+import javax.validation.Valid;
+import javax.validation.constraints.NotEmpty;
+import javax.validation.constraints.NotNull;
+import javax.ws.rs.*;
+import javax.ws.rs.core.*;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+@RolesAllowed(TeletraanPrincipalRole.Names.READ)
 @Path("/v1/envs")
 @Api(tags = "Environments")
 @SwaggerDefinition(
         tags = {
-                @Tag(name = "Environments", description = "Environment info APIs"),
-        }
-)
+            @Tag(name = "Environments", description = "Environment info APIs"),
+        })
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public class Environs {
@@ -63,23 +66,33 @@ public class Environs {
     }
 
     private static final Logger LOG = LoggerFactory.getLogger(Environs.class);
-    private final static int DEFAULT_INDEX = 1;
-    private final static int DEFAULT_SIZE = 30;
+    private static final int DEFAULT_INDEX = 1;
+    private static final int DEFAULT_SIZE = 30;
     private EnvironDAO environDAO;
     private EnvironHandler environHandler;
     private TagHandler tagHandler;
     private UserRolesDAO userRolesDAO;
-    private final Authorizer authorizer;
+    private com.pinterest.teletraan.handler.EnvironmentHandler environmentHandler;
+    // Shared so the provider's file-read caches survive across the per-request resource instances
+    // Jersey creates; a per-instance provider would rebuild an empty cache on every request.
+    private static final EntitlementEnforcementProvider DEFAULT_ENTITLEMENT_ENFORCEMENT_PROVIDER =
+            new EntitlementEnforcementProvider();
+    private EntitlementEnforcementProvider entitlementEnforcementProvider =
+            DEFAULT_ENTITLEMENT_ENFORCEMENT_PROVIDER;
 
-    @Context
-    UriInfo uriInfo;
-
-    public Environs(TeletraanServiceContext context) throws Exception {
+    public Environs(@Context TeletraanServiceContext context) throws Exception {
         environDAO = context.getEnvironDAO();
         environHandler = new EnvironHandler(context);
         tagHandler = new EnvTagHandler(context);
         userRolesDAO = context.getUserRolesDAO();
-        authorizer = context.getAuthorizer();
+        environmentHandler = new com.pinterest.teletraan.handler.EnvironmentHandler(context);
+    }
+
+    /**
+     * Visible for testing: override the entitlement enforcement gate (kill switch + onboarding).
+     */
+    void setEntitlementEnforcementProvider(EntitlementEnforcementProvider provider) {
+        this.entitlementEnforcementProvider = provider;
     }
 
     @GET
@@ -89,22 +102,26 @@ public class Environs {
             notes = "Returns an environment object given an environment id",
             response = EnvironBean.class)
     public EnvironBean get(
-            @ApiParam(value = "Environment id", required = true)@PathParam("id") String id) throws Exception {
+            @ApiParam(value = "Environment id", required = true) @PathParam("id") String id)
+            throws Exception {
         EnvironBean environBean = environDAO.getById(id);
         if (environBean == null) {
-            throw new TeletaanInternalException(Response.Status.NOT_FOUND,
-                String.format("Environment %s does not exist.", id));
+            throw new WebApplicationException(
+                    String.format("Environment %s does not exist.", id), Response.Status.NOT_FOUND);
         }
+        entitlementEnforcementProvider.applyUseEntitlements(environBean);
         return environBean;
     }
 
     @GET
     @Path("/names")
-    public List<String> get(@QueryParam("nameFilter") Optional<String> nameFilter,
-        @QueryParam("pageIndex") Optional<Integer> pageIndex,
-        @QueryParam("pageSize") Optional<Integer> pageSize) throws Exception {
-        return environDAO.getAllEnvNames(nameFilter.or(""), pageIndex.or(DEFAULT_INDEX),
-            pageSize.or(DEFAULT_SIZE));
+    public List<String> get(
+            @QueryParam("nameFilter") Optional<String> nameFilter,
+            @QueryParam("pageIndex") Optional<Integer> pageIndex,
+            @QueryParam("pageSize") Optional<Integer> pageSize)
+            throws Exception {
+        return environDAO.getAllEnvNames(
+                nameFilter.or(""), pageIndex.or(DEFAULT_INDEX), pageSize.or(DEFAULT_SIZE));
     }
 
     @GET
@@ -114,21 +131,49 @@ public class Environs {
     }
 
     @GET
+    @Path("/sidecars")
+    @ApiOperation(
+            value = "Get all sidecar environment objects",
+            notes = "Returns a list of sidecar environment objects",
+            response = EnvironBean.class,
+            responseContainer = "List")
+    public List<EnvironBean> getAllSidecars() throws Exception {
+        return environDAO.getAllSidecarEnvs();
+    }
+
+    @GET
     @ApiOperation(
             value = "Get all environment objects",
             notes = "Returns a list of environment objects related to the given environment name",
-            response = EnvironBean.class, responseContainer = "List")
+            response = EnvironBean.class,
+            responseContainer = "List")
     public List<EnvironBean> getAll(
-            @ApiParam(value = "Environment name", required = true)@QueryParam("envName") String envName,
-        @QueryParam("groupName") String groupName) throws Exception {
-        if (!StringUtils.isEmpty(envName)) {
-            return environDAO.getByName(envName);
+            @ApiParam(value = "Environment name", required = true) @QueryParam("envName")
+                    String envName,
+            @QueryParam("groupName") String groupName,
+            @QueryParam("stageType") String stageType)
+            throws Exception {
+        final List<EnvironBean> result;
+        if (!StringUtils.isBlank(envName)) {
+            final List<EnvironBean> envs = environDAO.getByName(envName);
+            if (!StringUtils.isBlank(stageType)) {
+                result =
+                        envs.stream()
+                                .filter(
+                                        e ->
+                                                StringUtils.equalsIgnoreCase(
+                                                        e.getStage_type().toString(), stageType))
+                                .collect(Collectors.toList());
+            } else {
+                result = envs;
+            }
+        } else if (!StringUtils.isEmpty(groupName)) {
+            result = environDAO.getEnvsByGroups(Arrays.asList(groupName));
+        } else {
+            result = environDAO.getAllEnvs();
         }
-
-        if (!StringUtils.isEmpty(groupName)) {
-            return environDAO.getEnvsByGroups(Arrays.asList(groupName));
-        }
-        return environDAO.getAllEnvs();
+        entitlementEnforcementProvider.applyUseEntitlements(result);
+        return result;
     }
 
     @POST
@@ -136,27 +181,37 @@ public class Environs {
             value = "Create environment",
             notes = "Creates a new environment given an environment object",
             response = Response.class)
+    @RolesAllowed(TeletraanPrincipalRole.Names.WRITE)
+    @ResourceAuthZInfo(type = AuthZResource.Type.ENV_STAGE, idLocation = Location.BODY)
     public Response create(
             @Context SecurityContext sc,
-            @ApiParam(value = "Environemnt object to create in database", required = true)@Valid EnvironBean environBean) throws Exception {
+            @Context UriInfo uriInfo,
+            @ApiParam(value = "Environment object to create in database", required = true) @Valid
+                    EnvironBean environBean)
+            throws Exception {
+        try {
+            environBean.validate();
+        } catch (IllegalArgumentException e) {
+            throw new WebApplicationException("Environment bean validation failed", e);
+        }
+
+        environmentHandler.validateSystemPriorityPermission(
+                sc.getUserPrincipal(),
+                environBean.getEnv_name(),
+                environBean.getStage_name(),
+                environBean.getSystem_priority());
+
         String operator = sc.getUserPrincipal().getName();
         String envName = environBean.getEnv_name();
         List<EnvironBean> environBeans = environDAO.getByName(envName);
-        if (!CollectionUtils.isEmpty(environBeans)) {
-            authorizer.authorize(sc, new Resource(envName, Resource.Type.ENV), Role.OPERATOR);
-        }
-        try {
-            environBean.validate();
-        } catch (Exception e) {
-            throw new TeletaanInternalException(Response.Status.BAD_REQUEST, e.toString());
-        }
         String id = environHandler.createEnvStage(environBean, operator);
-        if (!(authorizer instanceof OpenAuthorizer) && CollectionUtils.isEmpty(environBeans)) {
+        if (sc.getUserPrincipal() instanceof UserPrincipal
+                && CollectionUtils.isEmpty(environBeans)) {
             // This is the first stage for this env, let's make operator ADMIN of this env
             UserRolesBean rolesBean = new UserRolesBean();
             rolesBean.setResource_id(environBean.getEnv_name());
-            rolesBean.setResource_type(Resource.Type.ENV);
-            rolesBean.setRole(Role.ADMIN);
+            rolesBean.setResource_type(AuthZResource.Type.ENV);
+            rolesBean.setRole(TeletraanPrincipalRole.ADMIN);
             rolesBean.setUser_name(operator);
             userRolesDAO.insert(rolesBean);
             LOG.info("Make {} admin for the new env {}", operator, envName);
@@ -170,9 +225,17 @@ public class Environs {
 
     @POST
     @Path("/actions")
-    public void action(@Context SecurityContext sc,
-                       @NotEmpty @QueryParam("actionType") ActionType actionType,
-                       @NotEmpty @QueryParam("description") String description) throws Exception {
+    @RolesAllowed(TeletraanPrincipalRole.Names.EXECUTE)
+    @ResourceAuthZInfo(type = AuthZResource.Type.SYSTEM)
+    @ApiOperation(
+            value = "Enable/disable all environments",
+            notes =
+                    "Enable/disable all new deploy and configuration changes for every environments")
+    public void action(
+            @Context SecurityContext sc,
+            @NotNull @QueryParam("actionType") ActionType actionType,
+            @NotEmpty @QueryParam("description") String description)
+            throws Exception {
         String operator = sc.getUserPrincipal().getName();
         TagBean tagBean = new TagBean();
         switch (actionType) {
@@ -185,12 +248,15 @@ public class Environs {
                 tagBean.setValue(TagValue.DISABLE_ENV);
                 break;
             default:
-                throw new TeletaanInternalException(Response.Status.BAD_REQUEST, "No action found.");
+                throw new WebApplicationException("No action found.", Response.Status.BAD_REQUEST);
         }
 
         tagBean.setTarget_type(TagTargetType.TELETRAAN);
         tagBean.setComments(description);
         tagHandler.createTag(tagBean, operator);
-        LOG.info(String.format("Successfully updated actions %s for all envs by %s", actionType, operator));
+        LOG.info(
+                String.format(
+                        "Successfully updated actions %s for all envs by %s",
+                        actionType, operator));
     }
 }

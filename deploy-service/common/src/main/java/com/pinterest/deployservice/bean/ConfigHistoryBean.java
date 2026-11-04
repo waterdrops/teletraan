@@ -1,12 +1,12 @@
 /**
- * Copyright 2016 Pinterest, Inc.
+ * Copyright (c) 2016-2024 Pinterest, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *  
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- *    
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -16,20 +16,9 @@
 package com.pinterest.deployservice.bean;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import org.apache.commons.lang.builder.ReflectionToStringBuilder;
+import org.apache.commons.lang3.builder.ReflectionToStringBuilder;
 
-/**
- * CREATE TABLE config_history (
- * config_id        VARCHAR(64)   NOT NULL,
- * change_id        VARCHAR(22)	  NOT NULL,
- * creation_time    BIGINT(20)	  NOT NULL,
- * operator	    VARCHAR(64)	  NOT NULL,
- * type		    VARCHAR(64)	  NOT NULL,
- * config_change    VARCHAR(8192) NOT NULL,
- * PRIMARY KEY (group_name, config_change_id) );
- */
-
-public class ConfigHistoryBean implements Updatable {
+public class ConfigHistoryBean extends BaseBean implements Updatable {
     @JsonProperty("id")
     private String config_id;
 
@@ -73,7 +62,7 @@ public class ConfigHistoryBean implements Updatable {
     }
 
     public void setOperator(String operator) {
-        this.operator = operator;
+        this.operator = getStringWithinSizeLimit(operator, 64);
     }
 
     public String getOperator() {
